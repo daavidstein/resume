@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "[pre-commit] Validating resume story bank..."
+python3 scripts/validate_story_bank.py
