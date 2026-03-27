@@ -1,0 +1,12 @@
+Machine Learning Engineer
+
+Responsibilities:
+- Build and deploy machine learning models in production.
+- Collaborate with product and engineering teams.
+- Improve model reliability with monitoring, testing, and CI/CD.
+- Conduct experiments and communicate insights to stakeholders.
+
+Qualifications:
+- Strong Python and SQL skills.
+- Experience with NLP, PyTorch, and AWS.
+- MLOps mindset and ownership of model lifecycle.

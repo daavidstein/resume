@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -13,13 +14,19 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 FIXTURE = REPO_ROOT / "tests" / "fixtures" / "sample_resume_model.json"
 BASE_RESUME_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "sample_base_resume.md"
 JD_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "sample_job_description.md"
+JD_TXT_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "sample_job_description.txt"
+JD_HTML_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "sample_job_description.html"
 STORY_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "sample_story_bank.md"
 
 
 def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    # Keep tests deterministic/offline regardless of caller shell env.
+    env.pop("RESUME_SB_EMBEDDING_BACKEND", None)
     return subprocess.run(
         cmd,
         cwd=REPO_ROOT,
+        env=env,
         capture_output=True,
         text=True,
         check=False,
@@ -217,17 +224,58 @@ class ResumePipelineTests(unittest.TestCase):
 
     def test_tailor_resume_model_generates_valid_model(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            output_path = Path(tmp) / "tailored.json"
+            jd_variants = [JD_FIXTURE, JD_TXT_FIXTURE, JD_HTML_FIXTURE]
+            cache_path = Path(tmp) / "embeddings_cache.json"
+            for idx, jd_path in enumerate(jd_variants, start=1):
+                output_path = Path(tmp) / f"tailored_{idx}.json"
+                result = _run(
+                    [
+                        "python3",
+                        str(SCRIPTS_DIR / "tailor_resume_model.py"),
+                        "--base-resume",
+                        str(BASE_RESUME_FIXTURE),
+                        "--job-description",
+                        str(jd_path),
+                        "--master-story-bank",
+                        str(STORY_FIXTURE),
+                        "--embedding-cache",
+                        str(cache_path),
+                        "--output",
+                        str(output_path),
+                        "--page-budget",
+                        "2",
+                    ]
+                )
+                self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+                self.assertTrue(output_path.exists())
+
+                validate = _run(
+                    [
+                        "python3",
+                        str(SCRIPTS_DIR / "validate_resume_model.py"),
+                        "--input",
+                        str(output_path),
+                    ]
+                )
+                self.assertEqual(validate.returncode, 0, msg=validate.stdout + validate.stderr)
+
+    def test_tailor_resume_model_supports_job_description_url(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_path = Path(tmp) / "tailored_from_url.json"
+            jd_url = JD_HTML_FIXTURE.resolve().as_uri()
+            cache_path = Path(tmp) / "embeddings_cache.json"
             result = _run(
                 [
                     "python3",
                     str(SCRIPTS_DIR / "tailor_resume_model.py"),
                     "--base-resume",
                     str(BASE_RESUME_FIXTURE),
-                    "--job-description",
-                    str(JD_FIXTURE),
+                    "--job-description-url",
+                    jd_url,
                     "--master-story-bank",
                     str(STORY_FIXTURE),
+                    "--embedding-cache",
+                    str(cache_path),
                     "--output",
                     str(output_path),
                     "--page-budget",
@@ -237,19 +285,32 @@ class ResumePipelineTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
             self.assertTrue(output_path.exists())
 
-            validate = _run(
+    def test_tailor_resume_model_rejects_both_jd_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_path = Path(tmp) / "invalid.json"
+            jd_url = JD_HTML_FIXTURE.resolve().as_uri()
+            result = _run(
                 [
                     "python3",
-                    str(SCRIPTS_DIR / "validate_resume_model.py"),
-                    "--input",
+                    str(SCRIPTS_DIR / "tailor_resume_model.py"),
+                    "--base-resume",
+                    str(BASE_RESUME_FIXTURE),
+                    "--job-description",
+                    str(JD_FIXTURE),
+                    "--job-description-url",
+                    jd_url,
+                    "--master-story-bank",
+                    str(STORY_FIXTURE),
+                    "--output",
                     str(output_path),
                 ]
             )
-            self.assertEqual(validate.returncode, 0, msg=validate.stdout + validate.stderr)
+            self.assertNotEqual(result.returncode, 0)
 
     def test_tailor_resume_model_honors_one_page_limits(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             output_path = Path(tmp) / "tailored_one_page.json"
+            cache_path = Path(tmp) / "embeddings_cache.json"
             result = _run(
                 [
                     "python3",
@@ -260,6 +321,8 @@ class ResumePipelineTests(unittest.TestCase):
                     str(JD_FIXTURE),
                     "--master-story-bank",
                     str(STORY_FIXTURE),
+                    "--embedding-cache",
+                    str(cache_path),
                     "--output",
                     str(output_path),
                     "--page-budget",
@@ -309,12 +372,96 @@ class ResumePipelineTests(unittest.TestCase):
                     str(JD_FIXTURE),
                     "--master-story-bank",
                     str(STORY_FIXTURE),
+                    "--embedding-cache",
+                    str(Path(tmp) / "embeddings_cache.json"),
                     "--output",
                     str(output_path),
                 ]
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("base resume format preflight failed", result.stdout)
+
+    def test_tailor_resume_model_uses_embedding_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_path = Path(tmp) / "embeddings_cache.json"
+            output_a = Path(tmp) / "a.json"
+            output_b = Path(tmp) / "b.json"
+            report_b = Path(tmp) / "selection_b.json"
+
+            first = _run(
+                [
+                    "python3",
+                    str(SCRIPTS_DIR / "tailor_resume_model.py"),
+                    "--base-resume",
+                    str(BASE_RESUME_FIXTURE),
+                    "--job-description",
+                    str(JD_FIXTURE),
+                    "--master-story-bank",
+                    str(STORY_FIXTURE),
+                    "--embedding-cache",
+                    str(cache_path),
+                    "--output",
+                    str(output_a),
+                    "--page-budget",
+                    "2",
+                ]
+            )
+            self.assertEqual(first.returncode, 0, msg=first.stdout + first.stderr)
+            self.assertTrue(cache_path.exists())
+
+            second = _run(
+                [
+                    "python3",
+                    str(SCRIPTS_DIR / "tailor_resume_model.py"),
+                    "--base-resume",
+                    str(BASE_RESUME_FIXTURE),
+                    "--job-description",
+                    str(JD_FIXTURE),
+                    "--master-story-bank",
+                    str(STORY_FIXTURE),
+                    "--embedding-cache",
+                    str(cache_path),
+                    "--selection-report",
+                    str(report_b),
+                    "--output",
+                    str(output_b),
+                    "--page-budget",
+                    "2",
+                ]
+            )
+            self.assertEqual(second.returncode, 0, msg=second.stdout + second.stderr)
+            report = json.loads(report_b.read_text(encoding="utf-8"))
+            self.assertIn("embedding_cache", report)
+            self.assertGreater(report["embedding_cache"]["hits"], 0)
+
+    def test_openai_backend_requires_api_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env.pop("OPENAI_API_KEY", None)
+            env.pop("RESUME_SB_EMBEDDING_BACKEND", None)
+            result = subprocess.run(
+                [
+                    "python3",
+                    str(SCRIPTS_DIR / "tailor_resume_model.py"),
+                    "--base-resume",
+                    str(BASE_RESUME_FIXTURE),
+                    "--job-description",
+                    str(JD_FIXTURE),
+                    "--master-story-bank",
+                    str(STORY_FIXTURE),
+                    "--embedding-backend",
+                    "openai",
+                    "--output",
+                    str(Path(tmp) / "out.json"),
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("OPENAI_API_KEY is required", result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

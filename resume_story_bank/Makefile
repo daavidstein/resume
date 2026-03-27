@@ -8,6 +8,7 @@ TEMP_DIR ?= /tmp/resume_story_bank_temp
 BASE_RESUME ?= tests/fixtures/sample_base_resume.md
 JOB_DESCRIPTION ?= tests/fixtures/sample_job_description.md
 STORY_BANK ?= tests/fixtures/sample_story_bank.md
+EMBEDDING_CACHE ?= $(HOME)/.cache/resume_story_bank/embedding_cache.json
 
 validate-story-bank:
 	python3 scripts/validate_story_bank.py
@@ -24,7 +25,7 @@ validate-resume-model-strict:
 	python3 scripts/validate_resume_model.py --input $(MODEL) --master-story-bank data/processed/master_story_bank.md
 
 tailor-resume-model:
-	python3 scripts/tailor_resume_model.py --base-resume $(BASE_RESUME) --job-description $(JOB_DESCRIPTION) --master-story-bank $(STORY_BANK) --output $(MODEL) --page-budget $(PAGE_BUDGET)
+	python3 scripts/tailor_resume_model.py --base-resume $(BASE_RESUME) --job-description $(JOB_DESCRIPTION) --master-story-bank $(STORY_BANK) --embedding-cache $(EMBEDDING_CACHE) --output $(MODEL) --page-budget $(PAGE_BUDGET)
 
 generate-resume:
 	python3 scripts/generate_resume_artifacts.py --input-model $(MODEL) --output-dir $(OUTPUT) --page-budget $(PAGE_BUDGET) $(if $(PDF_ENGINE),--pdf-engine $(PDF_ENGINE),)

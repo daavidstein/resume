@@ -1,14 +1,34 @@
 #!/usr/bin/env python3
-"""Generate a resume model JSON from base resume + job description markdown."""
+"""Generate a resume model JSON from base resume + job description input."""
 
 from __future__ import annotations
 
 import argparse
+import html
 import json
+import os
 import re
 import sys
+from html.parser import HTMLParser
 from pathlib import Path
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
+from rag_retrieval import (
+    Chunk,
+    EmbeddingCache,
+    EmbeddingBackend,
+    Story,
+    build_jd_chunks,
+    build_story_chunks,
+    create_embedding_backend,
+    create_selection_report,
+    cosine_sparse,
+    lexical_overlap_score,
+    parse_master_story_bank,
+    rank_stories_for_jd,
+    dumps_pretty,
+)
 from validate_resume_model import BUDGET_LIMITS, validate_model
 
 
@@ -38,6 +58,91 @@ STOPWORDS = {
 }
 
 STORY_ID_PATTERN = re.compile(r"^SB-\d{3,}$")
+
+
+class _JDHTMLParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self._in_li = False
+        self._li_buffer: list[str] = []
+        self.requirements: list[str] = []
+        self.text_parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() == "li":
+            self._in_li = True
+            self._li_buffer = []
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() == "li":
+            cleaned = " ".join(part.strip() for part in self._li_buffer if part.strip()).strip()
+            if cleaned:
+                self.requirements.append(cleaned)
+            self._li_buffer = []
+            self._in_li = False
+
+    def handle_data(self, data: str) -> None:
+        unescaped = html.unescape(data)
+        if self._in_li:
+            self._li_buffer.append(unescaped)
+        self.text_parts.append(unescaped)
+
+
+def _load_jd_content(path: Path) -> tuple[str, list[str]]:
+    suffix = path.suffix.lower()
+    if suffix in {".md", ".txt"}:
+        text = path.read_text(encoding="utf-8")
+        requirements = []
+        for line in text.splitlines():
+            cleaned = line.strip()
+            if cleaned.startswith("- "):
+                requirements.append(cleaned[2:].strip())
+        return text, requirements
+
+    if suffix in {".html", ".htm"}:
+        parser = _JDHTMLParser()
+        parser.feed(path.read_text(encoding="utf-8"))
+        parser.close()
+        text = "\n".join(part.strip() for part in parser.text_parts if part.strip())
+        return text, parser.requirements
+
+    raise ValueError(
+        f"Unsupported JD format '{suffix}'. Supported extensions: .md, .txt, .html, .htm"
+    )
+
+
+def _parse_jd_text(text: str, requirements: list[str] | None = None) -> tuple[set[str], list[str]]:
+    extracted = requirements[:] if requirements else []
+    if not extracted:
+        for line in text.splitlines():
+            cleaned = line.strip()
+            if cleaned.startswith("- "):
+                extracted.append(cleaned[2:].strip())
+    if not extracted:
+        extracted = [part.strip() for part in re.split(r"[.\n]", text) if part.strip()]
+    return _tokens(text), extracted
+
+
+def _parse_jd_url(url: str) -> tuple[set[str], list[str]]:
+    request = Request(url, headers={"User-Agent": "resume-story-bank/1.0"})
+    try:
+        with urlopen(request, timeout=20) as response:
+            raw = response.read()
+            content_type = (response.headers.get("Content-Type") or "").lower()
+            encoding = response.headers.get_content_charset() or "utf-8"
+    except URLError as exc:
+        raise ValueError(f"Unable to fetch job description URL: {exc}") from exc
+
+    text = raw.decode(encoding, errors="replace")
+    is_html = "html" in content_type or url.lower().endswith((".html", ".htm"))
+    if is_html:
+        parser = _JDHTMLParser()
+        parser.feed(text)
+        parser.close()
+        body_text = "\n".join(part.strip() for part in parser.text_parts if part.strip())
+        return _parse_jd_text(body_text, requirements=parser.requirements)
+
+    return _parse_jd_text(text)
 
 
 def _section(text: str, heading: str) -> str:
@@ -211,48 +316,40 @@ def _parse_skills(experience: list[dict], highlights: list[str]) -> dict:
     return {"groups": [{"name": "Core Skills", "items": sorted(skills)}] if skills else [{"name": "Core Skills", "items": ["Python"]}]}
 
 
-def _parse_story_bank(path: Path, default_story_id: str) -> list[tuple[str, str]]:
-    if not path.exists():
-        return [(default_story_id, "")]
-    text = path.read_text(encoding="utf-8")
-    blocks: list[tuple[str, str]] = []
-    for match in re.finditer(r"(?ms)^## Story:.*?(?=^## Story:|\Z)", text):
-        block = match.group(0)
-        id_match = re.search(r"(?m)^### Story ID\s*$\n+([^\n]+)\s*$", block)
-        if not id_match:
-            continue
-        story_id = id_match.group(1).strip()
-        if STORY_ID_PATTERN.match(story_id):
-            blocks.append((story_id, block))
-    if not blocks:
-        return [(default_story_id, "")]
-    return blocks
-
-
-def _best_story_ids(text: str, story_blocks: list[tuple[str, str]]) -> list[str]:
-    query = _tokens(text)
-    if not query:
-        return [story_blocks[0][0]]
-    scored = []
-    for story_id, block in story_blocks:
-        scored.append((len(query & _tokens(block)), story_id))
-    scored.sort(reverse=True)
-    top_score = scored[0][0]
-    if top_score <= 0:
-        return [scored[0][1]]
-    return [sid for score, sid in scored[:2] if score == top_score or score > 0][:2]
+def _best_story_ids_for_text(
+    text: str,
+    story_chunks: list[Chunk],
+    story_chunk_vectors: dict[str, dict[int, float]],
+    embedding_backend: EmbeddingBackend,
+    ranked_story_ids: list[str],
+    embedding_cache: EmbeddingCache | None = None,
+    top_n: int = 2,
+) -> list[str]:
+    if not story_chunks:
+        return ranked_story_ids[:1]
+    query_vec = embedding_cache.get_or_embed(text, embedding_backend) if embedding_cache else embedding_backend.embed(text)
+    scored: list[tuple[float, str]] = []
+    for chunk in story_chunks:
+        semantic = 0.0
+        chunk_vec = story_chunk_vectors.get(chunk.chunk_id)
+        if chunk_vec:
+            semantic = cosine_sparse(query_vec, chunk_vec)
+        lexical = lexical_overlap_score(text, chunk.text)
+        total = semantic + (0.35 * lexical)
+        scored.append((total, chunk.parent_id))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    ordered: list[str] = []
+    for _, story_id in scored:
+        if story_id not in ordered:
+            ordered.append(story_id)
+    if not ordered:
+        return ranked_story_ids[:1]
+    return ordered[:top_n]
 
 
 def _parse_jd(path: Path) -> tuple[set[str], list[str]]:
-    text = path.read_text(encoding="utf-8")
-    requirements = []
-    for line in text.splitlines():
-        cleaned = line.strip()
-        if cleaned.startswith("- "):
-            requirements.append(cleaned[2:].strip())
-    if not requirements:
-        requirements = [part.strip() for part in re.split(r"[.\n]", text) if part.strip()]
-    return _tokens(text), requirements
+    text, requirements = _load_jd_content(path)
+    return _parse_jd_text(text, requirements=requirements)
 
 
 def build_model(
@@ -261,7 +358,11 @@ def build_model(
     jd_requirements: list[str],
     page_budget: int,
     default_location: str,
-    story_blocks: list[tuple[str, str]],
+    story_chunks: list[Chunk],
+    story_chunk_vectors: dict[str, dict[int, float]],
+    embedding_backend: EmbeddingBackend,
+    ranked_story_ids: list[str],
+    embedding_cache: EmbeddingCache | None,
 ) -> dict:
     limits = BUDGET_LIMITS[page_budget]
     basics = _parse_basics(base_resume_text, default_location=default_location)
@@ -290,7 +391,6 @@ def build_model(
 
     role_entries.sort(key=lambda item: item[0], reverse=True)
     selected_role_entries = role_entries[: limits["experience_roles_max"]]
-    selected_role_set = {id(item[1]) for item in selected_role_entries}
     selected_role_entries.sort(key=lambda item: next(idx for idx, r in enumerate(experience_raw) if id(r) == id(item[1])))
 
     experience = []
@@ -302,7 +402,19 @@ def build_model(
             bullet_id = f"EXP-{exp_counter:03d}"
             exp_counter += 1
             role_bullets.append({"bullet_id": bullet_id, "text": bullet})
-            traceability.append({"bullet_id": bullet_id, "story_ids": _best_story_ids(bullet, story_blocks)})
+            traceability.append(
+                {
+                    "bullet_id": bullet_id,
+                    "story_ids": _best_story_ids_for_text(
+                        bullet,
+                        story_chunks=story_chunks,
+                        story_chunk_vectors=story_chunk_vectors,
+                        embedding_backend=embedding_backend,
+                        ranked_story_ids=ranked_story_ids,
+                        embedding_cache=embedding_cache,
+                    ),
+                }
+            )
         experience.append(
             {
                 "title": role["title"],
@@ -314,7 +426,19 @@ def build_model(
         )
 
     for item in summary:
-        traceability.append({"bullet_id": item["bullet_id"], "story_ids": _best_story_ids(item["text"], story_blocks)})
+        traceability.append(
+            {
+                "bullet_id": item["bullet_id"],
+                "story_ids": _best_story_ids_for_text(
+                    item["text"],
+                    story_chunks=story_chunks,
+                    story_chunk_vectors=story_chunk_vectors,
+                    embedding_backend=embedding_backend,
+                    ranked_story_ids=ranked_story_ids,
+                    embedding_cache=embedding_cache,
+                ),
+            }
+        )
 
     selected_text = " ".join(
         [item["text"] for item in summary]
@@ -340,9 +464,17 @@ def build_model(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Tailor a resume model from base resume + JD markdown.")
+    parser = argparse.ArgumentParser(description="Tailor a resume model from base resume + JD input.")
     parser.add_argument("--base-resume", required=True, help="Path to base resume markdown.")
-    parser.add_argument("--job-description", required=True, help="Path to job description markdown.")
+    jd_group = parser.add_mutually_exclusive_group(required=True)
+    jd_group.add_argument(
+        "--job-description",
+        help="Path to job description file (.md, .txt, .html, .htm).",
+    )
+    jd_group.add_argument(
+        "--job-description-url",
+        help="URL to job description page or text (supports Greenhouse HTML pages).",
+    )
     parser.add_argument(
         "--master-story-bank",
         default="data/processed/master_story_bank.md",
@@ -352,6 +484,41 @@ def main() -> int:
     parser.add_argument("--page-budget", type=int, choices=(1, 2), default=2, help="Page budget (default: 2).")
     parser.add_argument("--default-location", default="Remote", help="Fallback location for basics.")
     parser.add_argument("--default-story-id", default="SB-000", help="Fallback story ID.")
+    parser.add_argument(
+        "--embedding-backend",
+        default=os.environ.get("RESUME_SB_EMBEDDING_BACKEND", "local_hash_v1"),
+        help="Embedding backend: local_hash_v1 or openai (default from RESUME_SB_EMBEDDING_BACKEND or local_hash_v1).",
+    )
+    parser.add_argument(
+        "--embedding-model",
+        default=os.environ.get("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
+        help="Embedding model for OpenAI backend (default: text-embedding-3-small).",
+    )
+    parser.add_argument(
+        "--openai-base-url",
+        default=os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+        help="OpenAI base URL (default: https://api.openai.com/v1).",
+    )
+    parser.add_argument(
+        "--openai-api-key",
+        default=None,
+        help="Optional OpenAI API key override (otherwise OPENAI_API_KEY env var is used).",
+    )
+    parser.add_argument(
+        "--embedding-cache",
+        default="~/.cache/resume_story_bank/embedding_cache.json",
+        help="Path to persistent embedding cache JSON (default: ~/.cache/resume_story_bank/embedding_cache.json).",
+    )
+    parser.add_argument(
+        "--no-embedding-cache",
+        action="store_true",
+        help="Disable embedding cache reads/writes for this run.",
+    )
+    parser.add_argument(
+        "--selection-report",
+        default=None,
+        help="Optional path to write story-selection explanation report JSON.",
+    )
     args = parser.parse_args()
 
     if not STORY_ID_PATTERN.match(args.default_story_id):
@@ -359,14 +526,14 @@ def main() -> int:
         return 1
 
     base_path = Path(args.base_resume)
-    jd_path = Path(args.job_description)
+    jd_path: Path | None = Path(args.job_description) if args.job_description else None
     story_path = Path(args.master_story_bank)
     output_path = Path(args.output)
 
     if not base_path.exists():
         print(f"ERROR: base resume not found: {base_path}")
         return 1
-    if not jd_path.exists():
+    if jd_path and not jd_path.exists():
         print(f"ERROR: job description not found: {jd_path}")
         return 1
 
@@ -378,8 +545,71 @@ def main() -> int:
             print(f"- {err}")
         return 1
 
-    jd_keywords, jd_requirements = _parse_jd(jd_path)
-    story_blocks = _parse_story_bank(story_path, default_story_id=args.default_story_id)
+    try:
+        if jd_path:
+            jd_keywords, jd_requirements = _parse_jd(jd_path)
+        else:
+            jd_keywords, jd_requirements = _parse_jd_url(args.job_description_url)
+    except ValueError as exc:
+        print(f"ERROR: {exc}")
+        return 1
+    stories: list[Story]
+    if story_path.exists():
+        stories = parse_master_story_bank(story_path.read_text(encoding="utf-8"))
+    else:
+        stories = []
+    if not stories:
+        stories = [
+            Story(
+                story_id=args.default_story_id,
+                title="Fallback Story",
+                context="",
+                actions="",
+                outcomes="",
+                skills_keywords="",
+                source_references="",
+            )
+        ]
+
+    try:
+        embedding_backend = create_embedding_backend(
+            backend_name=args.embedding_backend,
+            openai_model=args.embedding_model,
+            openai_api_key=args.openai_api_key or os.environ.get("OPENAI_API_KEY"),
+            openai_base_url=args.openai_base_url,
+        )
+    except ValueError as exc:
+        print(f"ERROR: {exc}")
+        return 1
+    embedding_cache: EmbeddingCache | None = None
+    embedding_cache_path = Path(args.embedding_cache).expanduser()
+    if not args.no_embedding_cache:
+        embedding_cache = EmbeddingCache(embedding_cache_path)
+        embedding_cache.load()
+
+    story_chunks = build_story_chunks(stories)
+    try:
+        story_chunk_vectors = {
+            chunk.chunk_id: (
+                embedding_cache.get_or_embed(chunk.text, embedding_backend)
+                if embedding_cache
+                else embedding_backend.embed(chunk.text)
+            )
+            for chunk in story_chunks
+        }
+        jd_text_for_chunks = " ".join(jd_requirements) if jd_requirements else ""
+        jd_chunks = build_jd_chunks(jd_text_for_chunks)
+        ranked_stories = rank_stories_for_jd(
+            jd_chunks=jd_chunks,
+            stories=stories,
+            story_chunks=story_chunks,
+            embedding_backend=embedding_backend,
+            cache=embedding_cache,
+        )
+    except (RuntimeError, ValueError) as exc:
+        print(f"ERROR: embedding step failed: {exc}")
+        return 1
+    ranked_story_ids = [item["story_id"] for item in ranked_stories] or [args.default_story_id]
 
     model = build_model(
         base_resume_text=base_text,
@@ -387,7 +617,11 @@ def main() -> int:
         jd_requirements=jd_requirements,
         page_budget=args.page_budget,
         default_location=args.default_location,
-        story_blocks=story_blocks,
+        story_chunks=story_chunks,
+        story_chunk_vectors=story_chunk_vectors,
+        embedding_backend=embedding_backend,
+        ranked_story_ids=ranked_story_ids,
+        embedding_cache=embedding_cache,
     )
     errors = validate_model(model)
     if errors:
@@ -399,6 +633,24 @@ def main() -> int:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(model, indent=2) + "\n", encoding="utf-8")
     print(f"Wrote tailored model: {output_path}")
+
+    report = create_selection_report(
+        jd_text=" ".join(jd_requirements),
+        ranked_stories=ranked_stories,
+        embedding_backend_name=embedding_backend.name,
+    )
+    if embedding_cache:
+        report["embedding_cache"] = {
+            "path": str(embedding_cache_path),
+            "hits": embedding_cache.hits,
+            "misses": embedding_cache.misses,
+        }
+    report_path = Path(args.selection_report) if args.selection_report else output_path.with_name("selection_report.json")
+    report_path.write_text(dumps_pretty(report), encoding="utf-8")
+    print(f"Wrote selection report: {report_path}")
+    if embedding_cache:
+        embedding_cache.save()
+        print(f"Updated embedding cache: {embedding_cache_path}")
     return 0
 
 

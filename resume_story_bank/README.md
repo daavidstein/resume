@@ -20,6 +20,9 @@ It is designed for fast resume tailoring now, and deterministic resume generatio
   - Build a voice profile and enforce it during rewriting
   - Add a scoring step to detect and correct tone drift
   - Compare outputs against baseline LLM resume generation
+- Auditability/Visualization:
+  - Add story ID -> human-readable story name mapping for user-facing displays.
+  - Explain why each story was selected (for example: keyword overlap, high similarity to specific JD segments).
 ## Current Structure
 
 - `prompts/`: reusable prompts for extraction and tailoring.
@@ -89,6 +92,31 @@ python3 scripts/tailor_resume_model.py \
   --output /tmp/resume_story_bank_temp/model.json \
   --page-budget 2
 ```
+
+Supported JD input formats for `--job-description`:
+
+- `.md`
+- `.txt`
+- `.html` / `.htm`
+
+You can also fetch a JD directly from URL (for example, a Greenhouse posting page):
+
+```bash
+python3 scripts/tailor_resume_model.py \
+  --base-resume resumes/base_resume/daavid_stein_base_resume.md \
+  --job-description-url 'https://boards.greenhouse.io/<company>/jobs/<id>' \
+  --master-story-bank data/processed/master_story_bank.md \
+  --output /tmp/resume_story_bank_temp/model.json \
+  --page-budget 2
+```
+
+Embedding cache:
+
+- Tailoring reuses cached embeddings for JD, story, and resume text to avoid repeated embedding calls.
+- Default cache path: `~/.cache/resume_story_bank/embedding_cache.json`
+- Embedding backend can be selected with `--embedding-backend` (`local_hash_v1` or `openai`).
+- OpenAI model can be selected with `--embedding-model` (default `text-embedding-3-small`).
+- Override with `--embedding-cache <path>` or disable with `--no-embedding-cache`.
 
 Then render/export artifacts:
 
@@ -196,6 +224,19 @@ Use `/tmp/resume_story_bank_temp` for agent-generated temporary artifacts and te
 - Confirmation policy:
   - No confirmation needed for create/write in temp unless total temp usage would exceed 500MB.
   - No confirmation needed for delete operations in temp.
+
+## Secrets (direnv)
+
+Use `direnv` at repo root to load API keys only for this project.
+
+1. From `/home/daavid/PycharmProjects/resume`, copy `.envrc.local.example` to `.envrc.local`.
+2. Set `OPENAI_API_KEY` in `.envrc.local`.
+3. Run `direnv allow`.
+
+Notes:
+
+- `.envrc` is tracked and loads `.envrc.local` if present.
+- `.envrc.local` is gitignored.
 
 ## Optional: Auto-Run On Commit
 
