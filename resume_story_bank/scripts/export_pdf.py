@@ -56,9 +56,49 @@ def export_markdown_to_pdf(
         command[6:6] = ["--pdf-engine", pdf_engine]
 
     proc = subprocess.run(command, capture_output=True, text=True, check=False)
-    if proc.returncode != 0:
-        stderr = proc.stderr.strip() or "unknown pandoc error"
+    if proc.returncode == 0:
+        return
+
+    stderr = proc.stderr.strip() or "unknown pandoc error"
+    # Older pandoc builds (e.g. 2.5) do not accept "--to pdf".
+    fallback_needed = "use -t latex" in stderr.lower() or "not compatible with output format pdf" in stderr.lower()
+    if not fallback_needed:
         raise RuntimeError(f"pandoc failed: {stderr}")
+
+    chosen_engine = pdf_engine
+    if not chosen_engine:
+        if shutil.which("xelatex"):
+            chosen_engine = "xelatex"
+        elif shutil.which("pdflatex"):
+            chosen_engine = "pdflatex"
+        else:
+            raise RuntimeError(
+                "pandoc fallback requires a TeX engine (xelatex or pdflatex) on PATH"
+            )
+
+    fallback_command = [
+        "pandoc",
+        str(input_md),
+        "--from",
+        "markdown",
+        "--to",
+        "latex",
+        "--pdf-engine",
+        chosen_engine,
+        "-V",
+        f"fontsize={profile['fontsize']}",
+        "-V",
+        f"geometry:{profile['geometry']}",
+        "--standalone",
+        "--output",
+        str(output_pdf),
+    ]
+    fallback_proc = subprocess.run(
+        fallback_command, capture_output=True, text=True, check=False
+    )
+    if fallback_proc.returncode != 0:
+        fallback_stderr = fallback_proc.stderr.strip() or "unknown pandoc fallback error"
+        raise RuntimeError(f"pandoc failed: {fallback_stderr}")
 
 
 def main() -> int:

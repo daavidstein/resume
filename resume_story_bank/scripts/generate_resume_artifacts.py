@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from export_pdf import export_markdown_to_pdf
-from render_resume_md import render_markdown
+from render_resume_md import assert_public_markdown_safe, render_markdown
 from validate_resume_model import BUDGET_LIMITS, validate_model
 
 
@@ -112,6 +112,11 @@ def main() -> int:
         default=None,
         help="Pandoc PDF engine (optional).",
     )
+    parser.add_argument(
+        "--include-internal",
+        action="store_true",
+        help="Also generate an internal markdown artifact with gaps and traceability.",
+    )
     args = parser.parse_args()
 
     input_model_path = Path(args.input_model)
@@ -138,14 +143,20 @@ def main() -> int:
 
     output_json = output_dir / "resume.json"
     output_md = output_dir / "resume.md"
+    output_internal_md = output_dir / "resume_internal.md"
     output_pdf = output_dir / "resume.pdf"
 
     output_json.write_text(json.dumps(model, indent=2) + "\n", encoding="utf-8")
-    markdown = render_markdown(model)
+    markdown = render_markdown(model, include_internal=False)
+    assert_public_markdown_safe(markdown)
     output_md.write_text(markdown, encoding="utf-8")
 
     print(f"Wrote {output_json}")
     print(f"Wrote {output_md}")
+    if args.include_internal:
+        internal_markdown = render_markdown(model, include_internal=True)
+        output_internal_md.write_text(internal_markdown, encoding="utf-8")
+        print(f"Wrote {output_internal_md}")
 
     if args.skip_pdf:
         print("Skipped PDF export (--skip-pdf set).")

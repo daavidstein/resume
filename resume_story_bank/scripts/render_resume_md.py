@@ -8,7 +8,7 @@ import json
 import sys
 from pathlib import Path
 
-from validate_resume_model import validate_model
+from validate_resume_model import STORY_ID_PATTERN, validate_model
 
 
 def _contact_line(basics: dict) -> str:
@@ -23,7 +23,7 @@ def _contact_line(basics: dict) -> str:
     return " | ".join(parts)
 
 
-def render_markdown(model: dict) -> str:
+def render_markdown(model: dict, include_internal: bool = False) -> str:
     lines: list[str] = []
     basics = model["basics"]
 
@@ -79,22 +79,32 @@ def render_markdown(model: dict) -> str:
             lines.append(education_line)
         lines.append("")
 
-    gaps = model.get("gaps", [])
-    if gaps:
-        lines.append("## Gaps")
-        lines.append("")
-        for gap in gaps:
-            lines.append(f"- {gap}")
-        lines.append("")
+    if include_internal:
+        gaps = model.get("gaps", [])
+        if gaps:
+            lines.append("## Gaps")
+            lines.append("")
+            for gap in gaps:
+                lines.append(f"- {gap}")
+            lines.append("")
 
-    lines.append("## Traceability Map")
-    lines.append("")
-    for entry in model.get("traceability", []):
-        story_ids = ", ".join(entry["story_ids"])
-        lines.append(f"- `{entry['bullet_id']}` -> {story_ids}")
-    lines.append("")
+        lines.append("## Traceability Map")
+        lines.append("")
+        for entry in model.get("traceability", []):
+            story_ids = ", ".join(entry["story_ids"])
+            lines.append(f"- `{entry['bullet_id']}` -> {story_ids}")
+        lines.append("")
 
     return "\n".join(lines)
+
+
+def assert_public_markdown_safe(markdown: str) -> None:
+    if "## Gaps" in markdown:
+        raise ValueError("public markdown must not contain a Gaps section")
+    if "## Traceability Map" in markdown:
+        raise ValueError("public markdown must not contain a Traceability Map section")
+    if STORY_ID_PATTERN.search(markdown):
+        raise ValueError("public markdown must not contain story IDs")
 
 
 def _load_model(path: Path) -> dict:
@@ -112,6 +122,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Render markdown resume from JSON model.")
     parser.add_argument("--input", required=True, help="Path to resume model JSON.")
     parser.add_argument("--output", required=True, help="Path to output markdown file.")
+    parser.add_argument(
+        "--include-internal",
+        action="store_true",
+        help="Include internal-only sections (gaps and traceability map).",
+    )
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -134,7 +149,13 @@ def main() -> int:
             print(f"- {error}")
         return 1
 
-    markdown = render_markdown(model)
+    markdown = render_markdown(model, include_internal=args.include_internal)
+    if not args.include_internal:
+        try:
+            assert_public_markdown_safe(markdown)
+        except ValueError as exc:
+            print(f"ERROR: {exc}")
+            return 1
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(markdown, encoding="utf-8")
     print(f"Rendered markdown resume: {output_path}")

@@ -77,6 +77,35 @@ The tailoring output should be a structured JSON resume model with:
 - `experience` bullets with `bullet_id`
 - `traceability` mapping each `bullet_id` to story ID(s)
 
+### Programmatic Tailoring (Current Baseline)
+
+You can generate `model.json` directly from base resume + JD + story bank:
+
+```bash
+python3 scripts/tailor_resume_model.py \
+  --base-resume resumes/base_resume/daavid_stein_base_resume.md \
+  --job-description jobs/job_descriptions/example_role.md \
+  --master-story-bank data/processed/master_story_bank.md \
+  --output /tmp/resume_story_bank_temp/model.json \
+  --page-budget 2
+```
+
+Then render/export artifacts:
+
+```bash
+python3 scripts/generate_resume_artifacts.py \
+  --input-model /tmp/resume_story_bank_temp/model.json \
+  --output-dir resumes/tailored/example_role
+```
+
+Implementation note: this tailoring step currently uses lightweight keyword matching as a temporary baseline. It is designed to be replaced by retrieval/similarity scoring (RAG-style) without changing the downstream model validation/render/export pipeline.
+
+Base resume format expectation for `tailor_resume_model.py`:
+
+- Must include `## About Me`
+- Must include `## Professional Experience`
+- Must include one or more role sections under experience (`### <Role>`) with `- ` bullets
+
 Then generate artifacts with:
 
 ```bash
@@ -84,6 +113,11 @@ python3 scripts/generate_resume_artifacts.py \
   --input-model tests/fixtures/sample_resume_model.json \
   --output-dir resumes/tailored/example_default
 ```
+
+Public artifact policy:
+
+- `resume.md` and `resume.pdf` are always end-user safe and do not include `gaps` or `traceability`.
+- Internal sections are available only with `--include-internal`, which writes `resume_internal.md`.
 
 For one-page mode:
 
@@ -102,6 +136,8 @@ If `pandoc` is not installed, add `--skip-pdf` to still generate `resume.json` a
   - Checks each story block has an ID
   - Verifies required headers exist for each story
   - Detects duplicate story IDs
+- `scripts/validate_story_bank_metadata.py`
+  - Checks consistency between `master_story_bank.md`, `source_map.md`, and `story_bank_changelog.md`
 - `scripts/split_story_bank.py`
   - Placeholder utility for future migration to one-story-per-file
 - `scripts/validate_resume_model.py`
@@ -112,6 +148,8 @@ If `pandoc` is not installed, add `--skip-pdf` to still generate `resume.json` a
   - Exports markdown to PDF using `pandoc` with budget-specific profile
 - `scripts/generate_resume_artifacts.py`
   - End-to-end generator for `resume.json`, `resume.md`, and optional `resume.pdf`
+- `scripts/tailor_resume_model.py`
+  - Deterministic baseline generator for `model.json` from base resume + JD + story bank
 
 ## Conventions
 
@@ -124,6 +162,9 @@ If `pandoc` is not installed, add `--skip-pdf` to still generate `resume.json` a
 ```bash
 cd resume_story_bank
 python3 scripts/validate_story_bank.py
+python3 scripts/tailor_resume_model.py --base-resume tests/fixtures/sample_base_resume.md --job-description tests/fixtures/sample_job_description.md --master-story-bank tests/fixtures/sample_story_bank.md --output /tmp/resume_story_bank_temp/model.json --page-budget 2
+python3 scripts/validate_resume_model.py --input /tmp/resume_story_bank_temp/model.json
+python3 scripts/generate_resume_artifacts.py --input-model /tmp/resume_story_bank_temp/model.json --output-dir resumes/tailored/generated_from_tailor --skip-pdf
 python3 scripts/validate_resume_model.py --input tests/fixtures/sample_resume_model.json
 python3 scripts/generate_resume_artifacts.py --input-model tests/fixtures/sample_resume_model.json --output-dir resumes/tailored/generated_default
 python3 scripts/generate_resume_artifacts.py --input-model tests/fixtures/sample_resume_model.json --output-dir resumes/tailored/generated_one_page --page-budget 1 --skip-pdf
@@ -135,7 +176,10 @@ make test-resume-pipeline
 ## Make Targets
 
 - `make validate`: validate story bank
+- `make validate-story-metadata`
 - `make validate-resume-model MODEL=<path>`
+- `make validate-resume-model-strict MODEL=<path>`
+- `make tailor-resume-model BASE_RESUME=<path> JOB_DESCRIPTION=<path> STORY_BANK=<path> MODEL=<path> PAGE_BUDGET=2|1`
 - `make generate-resume MODEL=<path> OUTPUT=<dir> PAGE_BUDGET=2|1`
 - `make export-pdf OUTPUT=<dir> PAGE_BUDGET=2|1`
 - `make test-resume-pipeline`

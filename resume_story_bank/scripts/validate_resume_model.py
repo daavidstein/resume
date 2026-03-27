@@ -233,6 +233,36 @@ def validate_model(model: dict) -> list[str]:
     return errors
 
 
+def load_story_ids_from_master_story_bank(path: Path) -> set[str]:
+    text = path.read_text(encoding="utf-8")
+    ids: set[str] = set()
+    for match in re.finditer(r"(?m)^### Story ID\s*$\n+([^\n]+)\s*$", text):
+        story_id = match.group(1).strip()
+        if STORY_ID_PATTERN.match(story_id):
+            ids.add(story_id)
+    return ids
+
+
+def validate_traceability_story_ids(model: dict, valid_story_ids: set[str]) -> list[str]:
+    errors: list[str] = []
+    traceability = model.get("traceability", [])
+    if not isinstance(traceability, list):
+        return errors
+
+    for idx, entry in enumerate(traceability):
+        if not isinstance(entry, dict):
+            continue
+        story_ids = entry.get("story_ids", [])
+        if not isinstance(story_ids, list):
+            continue
+        for sid_idx, story_id in enumerate(story_ids):
+            if isinstance(story_id, str) and story_id not in valid_story_ids:
+                errors.append(
+                    f"traceability[{idx}].story_ids[{sid_idx}] references unknown story ID: {story_id}"
+                )
+    return errors
+
+
 def _load_model(path: Path) -> dict:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -251,6 +281,11 @@ def main() -> int:
         required=True,
         help="Path to resume model JSON.",
     )
+    parser.add_argument(
+        "--master-story-bank",
+        default=None,
+        help="Optional path to master story bank markdown for strict story-ID existence checks.",
+    )
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -265,6 +300,17 @@ def main() -> int:
         return 1
 
     errors = validate_model(model)
+    if args.master_story_bank:
+        story_bank_path = Path(args.master_story_bank)
+        if not story_bank_path.exists():
+            print(f"ERROR: master story bank not found: {story_bank_path}")
+            return 1
+        valid_story_ids = load_story_ids_from_master_story_bank(story_bank_path)
+        if not valid_story_ids:
+            print(f"ERROR: no valid story IDs found in master story bank: {story_bank_path}")
+            return 1
+        errors.extend(validate_traceability_story_ids(model, valid_story_ids))
+
     if errors:
         print("VALIDATION FAILED")
         for error in errors:

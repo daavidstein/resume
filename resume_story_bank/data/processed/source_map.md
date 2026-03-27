@@ -6,8 +6,11 @@ Map each story ID to raw source artifacts for traceability.
 
 | Story ID | Source Type | Path | Notes |
 | --- | --- | --- | --- |
-| SB-001 | transcript | `data/raw/transcripts/example_interview_01.md` | Initial extraction seed |
-| SB-001 | summary | `data/raw/summaries/example_summary_01.md` | Consolidated highlights |
+| SB-101 | import | `/home/daavid/Downloads/master_story_bank (1).md` | Source story: `BP_MEASUREMENT_01` |
+| SB-102 | import | `/home/daavid/Downloads/master_story_bank (1).md` | Source story: `BP_KT_DEPLOY_01` |
+| SB-103 | import | `/home/daavid/Downloads/master_story_bank (1).md` | Source story: `GOV_QUANTUM_NLP_01` |
+| SB-104 | import | `/home/daavid/Downloads/master_story_bank (1).md` | Source story: `DENDRA_HITL_CV_01` |
+| SB-105 | import | `/home/daavid/Downloads/master_story_bank (1).md` | Source story: `DENDRA_DATA_QUALITY_01` |
 
 ## Notes
 

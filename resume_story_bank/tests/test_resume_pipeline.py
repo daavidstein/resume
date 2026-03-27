@@ -11,6 +11,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
 FIXTURE = REPO_ROOT / "tests" / "fixtures" / "sample_resume_model.json"
+BASE_RESUME_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "sample_base_resume.md"
+JD_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "sample_job_description.md"
+STORY_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "sample_story_bank.md"
 
 
 def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -159,6 +162,12 @@ class ResumePipelineTests(unittest.TestCase):
             md_two = (output_two / "resume.md").read_text(encoding="utf-8")
             md_one = (output_one / "resume.md").read_text(encoding="utf-8")
             self.assertNotEqual(md_two, md_one)
+            self.assertNotIn("## Gaps", md_two)
+            self.assertNotIn("## Traceability Map", md_two)
+            self.assertNotIn("SB-", md_two)
+            self.assertNotIn("## Gaps", md_one)
+            self.assertNotIn("## Traceability Map", md_one)
+            self.assertNotIn("SB-", md_one)
 
     def test_pdf_export_smoke_if_pandoc_available(self) -> None:
         if shutil.which("pandoc") is None:
@@ -182,6 +191,130 @@ class ResumePipelineTests(unittest.TestCase):
             if generate.returncode != 0:
                 self.skipTest(f"pandoc available but PDF backend unavailable: {generate.stdout}")
             self.assertTrue((output / "resume.pdf").exists())
+
+    def test_include_internal_generates_internal_markdown_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp) / "out_internal"
+            result = _run(
+                [
+                    "python3",
+                    str(SCRIPTS_DIR / "generate_resume_artifacts.py"),
+                    "--input-model",
+                    str(FIXTURE),
+                    "--output-dir",
+                    str(output_dir),
+                    "--include-internal",
+                    "--skip-pdf",
+                ]
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+            public_md = (output_dir / "resume.md").read_text(encoding="utf-8")
+            internal_md = (output_dir / "resume_internal.md").read_text(encoding="utf-8")
+            self.assertNotIn("## Gaps", public_md)
+            self.assertNotIn("## Traceability Map", public_md)
+            self.assertIn("## Gaps", internal_md)
+            self.assertIn("## Traceability Map", internal_md)
+
+    def test_tailor_resume_model_generates_valid_model(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_path = Path(tmp) / "tailored.json"
+            result = _run(
+                [
+                    "python3",
+                    str(SCRIPTS_DIR / "tailor_resume_model.py"),
+                    "--base-resume",
+                    str(BASE_RESUME_FIXTURE),
+                    "--job-description",
+                    str(JD_FIXTURE),
+                    "--master-story-bank",
+                    str(STORY_FIXTURE),
+                    "--output",
+                    str(output_path),
+                    "--page-budget",
+                    "2",
+                ]
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+            self.assertTrue(output_path.exists())
+
+            validate = _run(
+                [
+                    "python3",
+                    str(SCRIPTS_DIR / "validate_resume_model.py"),
+                    "--input",
+                    str(output_path),
+                ]
+            )
+            self.assertEqual(validate.returncode, 0, msg=validate.stdout + validate.stderr)
+
+    def test_tailor_resume_model_honors_one_page_limits(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_path = Path(tmp) / "tailored_one_page.json"
+            result = _run(
+                [
+                    "python3",
+                    str(SCRIPTS_DIR / "tailor_resume_model.py"),
+                    "--base-resume",
+                    str(BASE_RESUME_FIXTURE),
+                    "--job-description",
+                    str(JD_FIXTURE),
+                    "--master-story-bank",
+                    str(STORY_FIXTURE),
+                    "--output",
+                    str(output_path),
+                    "--page-budget",
+                    "1",
+                ]
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+            model = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(model["page_budget"], 1)
+            self.assertLessEqual(len(model["summary"]), 3)
+            for role in model["experience"]:
+                self.assertLessEqual(len(role["bullets"]), 4)
+
+    def test_validate_resume_model_strict_story_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            model = self._load_fixture()
+            model["traceability"][0]["story_ids"] = ["SB-999"]
+            model_path = Path(tmp) / "bad_story_id.json"
+            model_path.write_text(json.dumps(model), encoding="utf-8")
+
+            result = _run(
+                [
+                    "python3",
+                    str(SCRIPTS_DIR / "validate_resume_model.py"),
+                    "--input",
+                    str(model_path),
+                    "--master-story-bank",
+                    str(STORY_FIXTURE),
+                ]
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("references unknown story ID: SB-999", result.stdout)
+
+    def test_tailor_resume_model_preflight_requires_sections(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bad_base = Path(tmp) / "bad_base.md"
+            bad_base.write_text("# Name\n\nNo expected sections.\n", encoding="utf-8")
+            output_path = Path(tmp) / "out.json"
+
+            result = _run(
+                [
+                    "python3",
+                    str(SCRIPTS_DIR / "tailor_resume_model.py"),
+                    "--base-resume",
+                    str(bad_base),
+                    "--job-description",
+                    str(JD_FIXTURE),
+                    "--master-story-bank",
+                    str(STORY_FIXTURE),
+                    "--output",
+                    str(output_path),
+                ]
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("base resume format preflight failed", result.stdout)
 
 
 if __name__ == "__main__":
