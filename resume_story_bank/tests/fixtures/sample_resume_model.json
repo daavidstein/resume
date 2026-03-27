@@ -1,0 +1,130 @@
+{
+  "page_budget": 2,
+  "basics": {
+    "name": "Alex Candidate",
+    "email": "alex@example.com",
+    "phone": "555-123-4567",
+    "location": "San Francisco, CA",
+    "links": [
+      {
+        "label": "LinkedIn",
+        "url": "https://linkedin.com/in/alexcandidate"
+      },
+      {
+        "label": "GitHub",
+        "url": "https://github.com/alexcandidate"
+      }
+    ]
+  },
+  "summary": [
+    {
+      "bullet_id": "SUM-001",
+      "text": "Built and scaled data products supporting forecasting and reporting for business stakeholders."
+    },
+    {
+      "bullet_id": "SUM-002",
+      "text": "Delivered automation that reduced manual workflows and improved release confidence."
+    },
+    {
+      "bullet_id": "SUM-003",
+      "text": "Led cross-functional collaboration with engineering, analytics, and leadership partners."
+    },
+    {
+      "bullet_id": "SUM-004",
+      "text": "Strong in SQL, Python, experimentation, and communicating tradeoffs to non-technical partners."
+    }
+  ],
+  "experience": [
+    {
+      "title": "Senior Data Analyst",
+      "company": "Acme Corp",
+      "location": "San Francisco, CA",
+      "start_date": "2022",
+      "end_date": "Present",
+      "bullets": [
+        {
+          "bullet_id": "EXP-001",
+          "text": "Owned analytics roadmap for growth initiatives, aligning metrics definitions across product and engineering."
+        },
+        {
+          "bullet_id": "EXP-002",
+          "text": "Designed cohort dashboards that improved weekly decision velocity for product managers."
+        },
+        {
+          "bullet_id": "EXP-003",
+          "text": "Implemented data quality checks in CI to prevent metric regressions before release."
+        },
+        {
+          "bullet_id": "EXP-004",
+          "text": "Partnered with finance to standardize KPI reporting and reduce reconciliation overhead."
+        },
+        {
+          "bullet_id": "EXP-005",
+          "text": "Mentored analysts on experiment design and communication of uncertainty."
+        }
+      ]
+    },
+    {
+      "title": "Data Analyst",
+      "company": "Beta Labs",
+      "location": "Remote",
+      "start_date": "2019",
+      "end_date": "2022",
+      "bullets": [
+        {
+          "bullet_id": "EXP-006",
+          "text": "Automated recurring reporting pipelines with Python and SQL, improving refresh reliability."
+        },
+        {
+          "bullet_id": "EXP-007",
+          "text": "Created onboarding documentation that reduced analyst ramp-up time."
+        },
+        {
+          "bullet_id": "EXP-008",
+          "text": "Supported A/B test reads and stakeholder briefings for experimentation programs."
+        }
+      ]
+    }
+  ],
+  "skills": {
+    "groups": [
+      {
+        "name": "Languages",
+        "items": ["Python", "SQL"]
+      },
+      {
+        "name": "Data",
+        "items": ["Experimentation", "Dashboarding", "Data Modeling"]
+      },
+      {
+        "name": "Tools",
+        "items": ["Git", "dbt", "Looker"]
+      }
+    ]
+  },
+  "education": [
+    {
+      "institution": "State University",
+      "degree": "B.S. in Statistics",
+      "location": "CA",
+      "graduation": "2019"
+    }
+  ],
+  "gaps": [
+    "Direct ownership of hiring process not evidenced in story bank."
+  ],
+  "traceability": [
+    {"bullet_id": "SUM-001", "story_ids": ["SB-001"]},
+    {"bullet_id": "SUM-002", "story_ids": ["SB-002"]},
+    {"bullet_id": "SUM-003", "story_ids": ["SB-003"]},
+    {"bullet_id": "SUM-004", "story_ids": ["SB-004"]},
+    {"bullet_id": "EXP-001", "story_ids": ["SB-005"]},
+    {"bullet_id": "EXP-002", "story_ids": ["SB-006"]},
+    {"bullet_id": "EXP-003", "story_ids": ["SB-007"]},
+    {"bullet_id": "EXP-004", "story_ids": ["SB-008"]},
+    {"bullet_id": "EXP-005", "story_ids": ["SB-009"]},
+    {"bullet_id": "EXP-006", "story_ids": ["SB-010"]},
+    {"bullet_id": "EXP-007", "story_ids": ["SB-011"]},
+    {"bullet_id": "EXP-008", "story_ids": ["SB-012"]}
+  ]
+}

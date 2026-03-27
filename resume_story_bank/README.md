@@ -1,14 +1,14 @@
 # Resume Story Bank
 
-`resume_story_bank` is a local, markdown-first knowledge base for reusable career stories.  
-It is designed for fast resume tailoring now, and easy transition to local RAG later.
+`resume_story_bank` is a local, markdown-first knowledge base for reusable career stories.
+It is designed for fast resume tailoring now, and deterministic resume generation (JSON -> Markdown -> PDF).
 
 ## Goals (Overall/Long-Term)
 
 - Keep one source of truth for stories in a human-readable format.
 - Preserve raw inputs (transcripts, summaries, reviews) for traceability.
 - Make one-shot tailoring repeatable with prompt and template scaffolds.
-- Stay lightweight: no framework, no external dependencies.
+- Stay lightweight: no framework, Python standard library scripts.
 
 ## Goals (Short Term TO-DO list)
 
@@ -30,6 +30,7 @@ It is designed for fast resume tailoring now, and easy transition to local RAG l
 - `templates/`: standard markdown templates for story entries and tailoring requests.
 - `resumes/base_resume/`: canonical resume variants.
 - `resumes/tailored/`: job-specific resume outputs.
+- `tests/`: pipeline tests and fixtures.
 - `jobs/`: job descriptions and company notes.
 - `scripts/`: lightweight utilities for validation and future splitting.
 - `notes/`: working backlog and story ID index notes.
@@ -51,7 +52,7 @@ It is designed for fast resume tailoring now, and easy transition to local RAG l
      - base resume from `resumes/base_resume/`
      - `master_story_bank.md`
      - target JD/company context
-6. Save output resume in `resumes/tailored/`.
+6. Save tailored JSON model and generated artifacts in `resumes/tailored/`.
 
 ## One-Shot Resume Tailoring (Practical Pass)
 
@@ -69,6 +70,32 @@ Then run a single tailoring pass with `prompts/tailoring_prompt.md`, selecting s
 - Which story evidence best matches those implied expectations
 - How to preserve candidate voice while aligning with role language
 
+The tailoring output should be a structured JSON resume model with:
+
+- `page_budget` (`2` default, optional `1`)
+- `summary` bullets with `bullet_id`
+- `experience` bullets with `bullet_id`
+- `traceability` mapping each `bullet_id` to story ID(s)
+
+Then generate artifacts with:
+
+```bash
+python3 scripts/generate_resume_artifacts.py \
+  --input-model tests/fixtures/sample_resume_model.json \
+  --output-dir resumes/tailored/example_default
+```
+
+For one-page mode:
+
+```bash
+python3 scripts/generate_resume_artifacts.py \
+  --input-model tests/fixtures/sample_resume_model.json \
+  --output-dir resumes/tailored/example_one_page \
+  --page-budget 1
+```
+
+If `pandoc` is not installed, add `--skip-pdf` to still generate `resume.json` and `resume.md`.
+
 ## Scripts
 
 - `scripts/validate_story_bank.py`
@@ -77,6 +104,14 @@ Then run a single tailoring pass with `prompts/tailoring_prompt.md`, selecting s
   - Detects duplicate story IDs
 - `scripts/split_story_bank.py`
   - Placeholder utility for future migration to one-story-per-file
+- `scripts/validate_resume_model.py`
+  - Validates structured resume JSON, budget caps, and traceability coverage
+- `scripts/render_resume_md.py`
+  - Renders ATS-safe single-column markdown from validated JSON
+- `scripts/export_pdf.py`
+  - Exports markdown to PDF using `pandoc` with budget-specific profile
+- `scripts/generate_resume_artifacts.py`
+  - End-to-end generator for `resume.json`, `resume.md`, and optional `resume.pdf`
 
 ## Conventions
 
@@ -89,9 +124,34 @@ Then run a single tailoring pass with `prompts/tailoring_prompt.md`, selecting s
 ```bash
 cd resume_story_bank
 python3 scripts/validate_story_bank.py
+python3 scripts/validate_resume_model.py --input tests/fixtures/sample_resume_model.json
+python3 scripts/generate_resume_artifacts.py --input-model tests/fixtures/sample_resume_model.json --output-dir resumes/tailored/generated_default
+python3 scripts/generate_resume_artifacts.py --input-model tests/fixtures/sample_resume_model.json --output-dir resumes/tailored/generated_one_page --page-budget 1 --skip-pdf
 python3 scripts/split_story_bank.py --help
 make validate
+make test-resume-pipeline
 ```
+
+## Make Targets
+
+- `make validate`: validate story bank
+- `make validate-resume-model MODEL=<path>`
+- `make generate-resume MODEL=<path> OUTPUT=<dir> PAGE_BUDGET=2|1`
+- `make export-pdf OUTPUT=<dir> PAGE_BUDGET=2|1`
+- `make test-resume-pipeline`
+- `make temp-dir`: create shared temp workspace (`/tmp/resume_story_bank_temp` by default)
+- `make clean-temp`: delete files under shared temp workspace
+
+## Shared Temp Workspace
+
+Use `/tmp/resume_story_bank_temp` for agent-generated temporary artifacts and test outputs.
+
+- Agents may create, overwrite, and delete files in this directory.
+- The path is configurable with `TEMP_DIR=<path>` for make targets.
+- This directory is ephemeral and should not store source-of-truth content.
+- Confirmation policy:
+  - No confirmation needed for create/write in temp unless total temp usage would exceed 500MB.
+  - No confirmation needed for delete operations in temp.
 
 ## Optional: Auto-Run On Commit
 

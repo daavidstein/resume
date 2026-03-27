@@ -24,7 +24,8 @@ List top requirements from the JD (ranked).
 ## Constraints
 
 - Preserve factual accuracy
-- Keep to target length/page budget
+- Page budget: `2` (default) or `1`
+- Keep to selected length/page budget
 - Emphasize strongest relevant evidence
 - Preserve applicant voice (avoid generic rewrite tone)
 
@@ -44,7 +45,8 @@ List top requirements from the JD (ranked).
 ## Requested Output
 
 - Role and culture brief (with explicit assumptions)
+- Tailored resume model JSON (must include `page_budget`)
 - Tailored summary
 - Tailored experience bullets
 - Skills alignment pass
-- Traceability map (bullet -> story ID)
+- Traceability map (`bullet_id` -> story ID list)
