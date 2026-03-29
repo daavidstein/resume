@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Validate a structured resume model used for markdown/PDF rendering."""
+"""Validate a structured resume model used for markdown/PDF rendering.
+
+Maintainer note:
+- Keep this script standard-library-only for now.
+- If schema complexity keeps growing (more nested structures, conditional fields,
+  or harder-to-maintain cross-field rules), consider migrating shape/type
+  validation to Pydantic and keeping only business-specific checks here.
+"""
 
 from __future__ import annotations
 
@@ -185,6 +192,8 @@ def validate_model(model: dict) -> list[str]:
             if isinstance(item, dict):
                 _validate_non_empty_string(item.get("institution"), f"{prefix}.institution", errors)
                 _validate_non_empty_string(item.get("degree"), f"{prefix}.degree", errors)
+                _validate_non_empty_string(item.get("start_date"), f"{prefix}.start_date", errors)
+                _validate_non_empty_string(item.get("end_date"), f"{prefix}.end_date", errors)
 
     gaps = model.get("gaps", [])
     _expect(isinstance(gaps, list), "gaps must be an array", errors)

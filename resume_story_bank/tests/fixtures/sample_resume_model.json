@@ -107,7 +107,8 @@
       "institution": "State University",
       "degree": "B.S. in Statistics",
       "location": "CA",
-      "graduation": "2019"
+      "start_date": "2015",
+      "end_date": "2019"
     }
   ],
   "gaps": [

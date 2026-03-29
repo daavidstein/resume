@@ -395,13 +395,36 @@ def _parse_education(text: str) -> list[dict]:
         if not cleaned.startswith("- "):
             continue
         body = cleaned[2:].strip()
-        degree = body
+        degree_and_institution, date_part = body, ""
+        if "|" in body:
+            degree_and_institution, date_part = body.split("|", 1)
+        degree_and_institution = degree_and_institution.strip()
+        date_part = date_part.strip()
+
+        degree = degree_and_institution
         institution = "Unknown Institution"
-        if "," in body:
-            degree_part, rem = body.split(",", 1)
+        if "," in degree_and_institution:
+            degree_part, institution_part = degree_and_institution.split(",", 1)
             degree = degree_part.strip()
-            institution = rem.split("|", 1)[0].strip()
-        out.append({"institution": institution, "degree": degree})
+            institution = institution_part.strip()
+
+        start_date = ""
+        end_date = ""
+        if date_part:
+            normalized_dates = date_part.replace("–", "-").replace("—", "-")
+            if "-" in normalized_dates:
+                start_raw, end_raw = normalized_dates.split("-", 1)
+                start_date = start_raw.strip()
+                end_date = end_raw.strip()
+
+        out.append(
+            {
+                "institution": institution,
+                "degree": degree,
+                "start_date": start_date,
+                "end_date": end_date,
+            }
+        )
     return out
 
 

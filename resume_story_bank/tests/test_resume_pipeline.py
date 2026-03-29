@@ -127,6 +127,24 @@ class ResumePipelineTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("Missing traceability entry for bullet_id: SUM-001", result.stdout)
 
+    def test_education_dates_are_required(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            model = self._load_fixture()
+            model["education"][0].pop("start_date")
+            model_path = Path(tmp) / "missing_education_start_date.json"
+            model_path.write_text(json.dumps(model), encoding="utf-8")
+
+            result = _run(
+                [
+                    "python3",
+                    str(SCRIPTS_DIR / "validate_resume_model.py"),
+                    "--input",
+                    str(model_path),
+                ]
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("education[0].start_date must be a non-empty string", result.stdout)
+
     def test_integration_generate_default_two_page_and_one_page(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -248,6 +266,18 @@ class ResumePipelineTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
                 self.assertTrue(output_path.exists())
+                model = json.loads(output_path.read_text(encoding="utf-8"))
+                self.assertEqual(
+                    model["education"],
+                    [
+                        {
+                            "institution": "State University",
+                            "degree": "M.S. in Data Science",
+                            "start_date": "2017",
+                            "end_date": "2019",
+                        }
+                    ],
+                )
 
                 validate = _run(
                     [

@@ -74,7 +74,9 @@ def render_markdown(model: dict, include_internal: bool = False) -> str:
             education_line = f"- **{item['institution']}** | {item['degree']}"
             if item.get("location"):
                 education_line += f" | {item['location']}"
-            if item.get("graduation"):
+            if item.get("start_date") and item.get("end_date"):
+                education_line += f" | {item['start_date']} - {item['end_date']}"
+            elif item.get("graduation"):
                 education_line += f" | {item['graduation']}"
             lines.append(education_line)
         lines.append("")
