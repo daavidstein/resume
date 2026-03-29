@@ -1,0 +1,8 @@
+.envrc.local
+.env
+.env.*
+!.envrc.local.example
+
+.pytest_cache/
+**/__pycache__/
+*.pyc

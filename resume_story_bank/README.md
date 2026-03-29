@@ -23,6 +23,8 @@ It is designed for fast resume tailoring now, and deterministic resume generatio
 - Auditability/Visualization:
   - Add story ID -> human-readable story name mapping for user-facing displays.
   - Explain why each story was selected (for example: keyword overlap, high similarity to specific JD segments).
+
+See [notes/backlog.md](/home/daavid/PycharmProjects/resume/resume_story_bank/notes/backlog.md) for the session-ready checklist and tech-debt queue.
 ## Current Structure
 
 - `prompts/`: reusable prompts for extraction and tailoring.

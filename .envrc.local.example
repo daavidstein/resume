@@ -1,0 +1,8 @@
+# Copy this file to .envrc.local and fill in real values.
+
+export OPENAI_API_KEY="sk-REPLACE_ME"
+
+# Optional:
+# export RESUME_SB_EMBEDDING_BACKEND="openai"
+# export OPENAI_EMBEDDING_MODEL="text-embedding-3-small"
+# export OPENAI_BASE_URL="https://api.openai.com/v1"
