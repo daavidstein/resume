@@ -248,6 +248,34 @@ def _hybrid_score(
     return (semantic_weight * semantic) + (lexical_weight * lexical)
 
 
+def _cache_reuse_summary(
+    texts: list[str],
+    embedding_backend: EmbeddingBackend,
+    embedding_cache: EmbeddingCache | None,
+) -> dict[str, int] | None:
+    if not embedding_cache:
+        return None
+    unique_texts = []
+    seen: set[str] = set()
+    for text in texts:
+        payload = text.strip()
+        if not payload or payload in seen:
+            continue
+        seen.add(payload)
+        unique_texts.append(payload)
+    total = len(unique_texts)
+    hits = sum(
+        1
+        for payload in unique_texts
+        if EmbeddingCache._key(payload, embedding_backend.name) in embedding_cache.records
+    )
+    return {
+        "total": total,
+        "hits": hits,
+        "misses": total - hits,
+    }
+
+
 def _parse_basics(text: str, default_location: str) -> dict:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     name = ""
@@ -731,6 +759,56 @@ def main() -> int:
         embedding_cache.load()
 
     story_chunks = build_story_chunks(stories)
+    base_resume_summary_candidates: list[str] = []
+    base_resume_role_texts: list[str] = []
+    base_resume_bullets: list[str] = []
+    about_sentences_for_cache, highlights_for_cache = _parse_summary_and_highlights(base_text)
+    base_resume_summary_candidates.extend(about_sentences_for_cache)
+    base_resume_summary_candidates.extend(highlights_for_cache)
+    for role in _parse_experience(base_text):
+        base_resume_role_texts.append(f"{role['title']} {role['company']}")
+        base_resume_bullets.extend(role["bullets"])
+
+    jd_text_for_chunks = " ".join(jd_requirements) if jd_requirements else ""
+    jd_chunks = build_jd_chunks(jd_text_for_chunks)
+    jd_candidate_texts = [chunk.text for chunk in jd_chunks]
+    if jd_text_for_chunks.strip():
+        jd_candidate_texts.append(jd_text_for_chunks.strip())
+
+    if embedding_cache:
+        story_cache_summary = _cache_reuse_summary(
+            texts=[chunk.text for chunk in story_chunks],
+            embedding_backend=embedding_backend,
+            embedding_cache=embedding_cache,
+        )
+        jd_cache_summary = _cache_reuse_summary(
+            texts=jd_candidate_texts,
+            embedding_backend=embedding_backend,
+            embedding_cache=embedding_cache,
+        )
+        base_resume_cache_summary = _cache_reuse_summary(
+            texts=base_resume_summary_candidates + base_resume_role_texts + base_resume_bullets,
+            embedding_backend=embedding_backend,
+            embedding_cache=embedding_cache,
+        )
+        jd_source_label = str(jd_path) if jd_path else args.job_description_url
+        print("Embedding cache precheck:")
+        print(
+            f"- master story bank ({story_path}): "
+            f"{story_cache_summary['hits']}/{story_cache_summary['total']} cached, "
+            f"{story_cache_summary['misses']} to embed"
+        )
+        print(
+            f"- job description ({jd_source_label}): "
+            f"{jd_cache_summary['hits']}/{jd_cache_summary['total']} cached, "
+            f"{jd_cache_summary['misses']} to embed"
+        )
+        print(
+            f"- base resume ({base_path}): "
+            f"{base_resume_cache_summary['hits']}/{base_resume_cache_summary['total']} cached, "
+            f"{base_resume_cache_summary['misses']} to embed"
+        )
+
     try:
         story_chunk_vectors = {
             chunk.chunk_id: (
@@ -740,8 +818,6 @@ def main() -> int:
             )
             for chunk in story_chunks
         }
-        jd_text_for_chunks = " ".join(jd_requirements) if jd_requirements else ""
-        jd_chunks = build_jd_chunks(jd_text_for_chunks)
         ranked_stories = rank_stories_for_jd(
             jd_chunks=jd_chunks,
             stories=stories,

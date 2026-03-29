@@ -442,6 +442,10 @@ class ResumePipelineTests(unittest.TestCase):
                 ]
             )
             self.assertEqual(second.returncode, 0, msg=second.stdout + second.stderr)
+            self.assertIn("Embedding cache precheck:", second.stdout)
+            self.assertIn("- master story bank (", second.stdout)
+            self.assertIn("- job description (", second.stdout)
+            self.assertIn("- base resume (", second.stdout)
             report = json.loads(report_b.read_text(encoding="utf-8"))
             self.assertIn("embedding_cache", report)
             self.assertGreater(report["embedding_cache"]["hits"], 0)
