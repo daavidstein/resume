@@ -264,6 +264,7 @@ class ResumePipelineTests(unittest.TestCase):
             output_path = Path(tmp) / "tailored_from_url.json"
             jd_url = JD_HTML_FIXTURE.resolve().as_uri()
             cache_path = Path(tmp) / "embeddings_cache.json"
+            jd_fetch_cache_dir = Path(tmp) / "jd_fetch_cache"
             result = _run(
                 [
                     "python3",
@@ -276,6 +277,8 @@ class ResumePipelineTests(unittest.TestCase):
                     str(STORY_FIXTURE),
                     "--embedding-cache",
                     str(cache_path),
+                    "--jd-fetch-cache-dir",
+                    str(jd_fetch_cache_dir),
                     "--output",
                     str(output_path),
                     "--page-budget",
@@ -284,6 +287,15 @@ class ResumePipelineTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
             self.assertTrue(output_path.exists())
+            metadata_files = list(jd_fetch_cache_dir.glob("*.json"))
+            artifact_files = list(jd_fetch_cache_dir.glob("*.html"))
+            self.assertEqual(len(metadata_files), 1)
+            self.assertEqual(len(artifact_files), 1)
+            metadata = json.loads(metadata_files[0].read_text(encoding="utf-8"))
+            self.assertEqual(metadata["url"], jd_url)
+            self.assertEqual(metadata["is_html"], True)
+            self.assertEqual(Path(metadata["raw_path"]), artifact_files[0])
+            self.assertEqual(Path(metadata["metadata_path"]), metadata_files[0])
 
     def test_tailor_resume_model_rejects_both_jd_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

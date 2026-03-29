@@ -175,7 +175,18 @@ class OpenAIEmbeddingBackend:
 
 
 class EmbeddingCache:
-    """Persistent embedding cache keyed by backend + text hash."""
+    """Persistent embedding cache keyed by backend name and SHA-256 of input text.
+
+    Key format:
+    - ``{backend_name}:{sha256_hex}``
+    - Example: ``openai_text-embedding-3-small:d743...``
+
+    Hash input details:
+    - SHA-256 is computed over the exact ``text.encode("utf-8")`` bytes passed to
+      ``get_or_embed``.
+    - No canonicalization is applied (no whitespace normalization, lowercasing, or
+      punctuation cleanup), so any text change produces a different key.
+    """
 
     def __init__(self, path: Path) -> None:
         self.path = path

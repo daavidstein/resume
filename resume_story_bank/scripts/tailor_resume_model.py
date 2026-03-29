@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import json
 import os
 import re
 import sys
+from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.error import URLError
@@ -123,7 +125,43 @@ def _parse_jd_text(text: str, requirements: list[str] | None = None) -> tuple[se
     return _tokens(text), extracted
 
 
-def _parse_jd_url(url: str) -> tuple[set[str], list[str]]:
+def _save_jd_fetch_artifact(
+    *,
+    url: str,
+    raw: bytes,
+    content_type: str,
+    encoding: str,
+    cache_dir: Path,
+    is_html: bool,
+) -> dict:
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+    extension = ".html" if is_html else ".txt"
+    stem = f"{timestamp}_{url_hash}"
+    raw_path = cache_dir / f"{stem}{extension}"
+    metadata_path = cache_dir / f"{stem}.json"
+
+    raw_path.write_bytes(raw)
+    metadata = {
+        "url": url,
+        "fetched_at_utc": timestamp,
+        "content_type": content_type,
+        "encoding": encoding,
+        "is_html": is_html,
+        "bytes": len(raw),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "raw_path": str(raw_path),
+        "metadata_path": str(metadata_path),
+    }
+    metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+    return metadata
+
+
+def _parse_jd_url(
+    url: str,
+    jd_fetch_cache_dir: Path | None = None,
+) -> tuple[set[str], list[str], dict | None]:
     request = Request(url, headers={"User-Agent": "resume-story-bank/1.0"})
     try:
         with urlopen(request, timeout=20) as response:
@@ -135,14 +173,27 @@ def _parse_jd_url(url: str) -> tuple[set[str], list[str]]:
 
     text = raw.decode(encoding, errors="replace")
     is_html = "html" in content_type or url.lower().endswith((".html", ".htm"))
+    fetch_artifact: dict | None = None
+    if jd_fetch_cache_dir:
+        fetch_artifact = _save_jd_fetch_artifact(
+            url=url,
+            raw=raw,
+            content_type=content_type,
+            encoding=encoding,
+            cache_dir=jd_fetch_cache_dir,
+            is_html=is_html,
+        )
+
     if is_html:
         parser = _JDHTMLParser()
         parser.feed(text)
         parser.close()
         body_text = "\n".join(part.strip() for part in parser.text_parts if part.strip())
-        return _parse_jd_text(body_text, requirements=parser.requirements)
+        keywords, requirements = _parse_jd_text(body_text, requirements=parser.requirements)
+        return keywords, requirements, fetch_artifact
 
-    return _parse_jd_text(text)
+    keywords, requirements = _parse_jd_text(text)
+    return keywords, requirements, fetch_artifact
 
 
 def _section(text: str, heading: str) -> str:
@@ -167,6 +218,34 @@ def _tokens(text: str) -> set[str]:
 
 def _score(text: str, keywords: set[str]) -> int:
     return len(_tokens(text) & keywords)
+
+
+def _embed_text(
+    text: str,
+    embedding_backend: EmbeddingBackend,
+    embedding_cache: EmbeddingCache | None,
+) -> dict[int, float]:
+    payload = text.strip()
+    if not payload:
+        return {}
+    if embedding_cache:
+        return embedding_cache.get_or_embed(payload, embedding_backend)
+    return embedding_backend.embed(payload)
+
+
+def _hybrid_score(
+    text: str,
+    jd_text: str,
+    jd_vector: dict[int, float],
+    embedding_backend: EmbeddingBackend,
+    embedding_cache: EmbeddingCache | None,
+    semantic_weight: float = 0.7,
+    lexical_weight: float = 0.3,
+) -> float:
+    text_vec = _embed_text(text, embedding_backend, embedding_cache)
+    semantic = cosine_sparse(text_vec, jd_vector) if text_vec and jd_vector else 0.0
+    lexical = lexical_overlap_score(text, jd_text) if jd_text else 0.0
+    return (semantic_weight * semantic) + (lexical_weight * lexical)
 
 
 def _parse_basics(text: str, default_location: str) -> dict:
@@ -372,18 +451,62 @@ def build_model(
     skills = _parse_skills(experience_raw, highlights)
 
     summary_candidates = about_sentences + highlights
-    summary_scored = sorted(summary_candidates, key=lambda s: (_score(s, jd_keywords), len(s)), reverse=True)
+    jd_query_text = " ".join(jd_requirements).strip()
+    if not jd_query_text and jd_keywords:
+        jd_query_text = " ".join(sorted(jd_keywords))
+    jd_query_vec = _embed_text(jd_query_text, embedding_backend, embedding_cache)
+
+    summary_scored = sorted(
+        summary_candidates,
+        key=lambda s: (
+            _hybrid_score(
+                s,
+                jd_text=jd_query_text,
+                jd_vector=jd_query_vec,
+                embedding_backend=embedding_backend,
+                embedding_cache=embedding_cache,
+            ),
+            _score(s, jd_keywords),
+            len(s),
+        ),
+        reverse=True,
+    )
     summary_text = summary_scored[: limits["summary_bullets_max"]]
     summary = [{"bullet_id": f"SUM-{idx:03d}", "text": text} for idx, text in enumerate(summary_text, start=1)]
 
     role_entries = []
     for role in experience_raw:
-        role_score = _score(role["title"] + " " + role["company"], jd_keywords) + sum(
-            _score(bullet, jd_keywords) for bullet in role["bullets"]
+        role_text = f"{role['title']} {role['company']}"
+        role_score = _hybrid_score(
+            role_text,
+            jd_text=jd_query_text,
+            jd_vector=jd_query_vec,
+            embedding_backend=embedding_backend,
+            embedding_cache=embedding_cache,
+        )
+        role_score += sum(
+            _hybrid_score(
+                bullet,
+                jd_text=jd_query_text,
+                jd_vector=jd_query_vec,
+                embedding_backend=embedding_backend,
+                embedding_cache=embedding_cache,
+            )
+            for bullet in role["bullets"]
         )
         bullet_pairs = sorted(
             role["bullets"],
-            key=lambda bullet: (_score(bullet, jd_keywords), len(bullet)),
+            key=lambda bullet: (
+                _hybrid_score(
+                    bullet,
+                    jd_text=jd_query_text,
+                    jd_vector=jd_query_vec,
+                    embedding_backend=embedding_backend,
+                    embedding_cache=embedding_cache,
+                ),
+                _score(bullet, jd_keywords),
+                len(bullet),
+            ),
             reverse=True,
         )
         bullets = bullet_pairs[: limits["experience_bullets_per_role_max"]]
@@ -476,6 +599,19 @@ def main() -> int:
         help="URL to job description page or text (supports Greenhouse HTML pages).",
     )
     parser.add_argument(
+        "--jd-fetch-cache-dir",
+        default="~/.cache/resume_story_bank/job_description_fetches",
+        help=(
+            "Directory for raw --job-description-url fetch artifacts "
+            "(default: ~/.cache/resume_story_bank/job_description_fetches)."
+        ),
+    )
+    parser.add_argument(
+        "--no-jd-fetch-cache",
+        action="store_true",
+        help="Disable writing raw --job-description-url fetch artifacts.",
+    )
+    parser.add_argument(
         "--master-story-bank",
         default="data/processed/master_story_bank.md",
         help="Path to master story bank markdown.",
@@ -545,11 +681,18 @@ def main() -> int:
             print(f"- {err}")
         return 1
 
+    jd_fetch_artifact: dict | None = None
     try:
         if jd_path:
             jd_keywords, jd_requirements = _parse_jd(jd_path)
         else:
-            jd_keywords, jd_requirements = _parse_jd_url(args.job_description_url)
+            jd_fetch_cache_dir: Path | None = None
+            if not args.no_jd_fetch_cache:
+                jd_fetch_cache_dir = Path(args.jd_fetch_cache_dir).expanduser()
+            jd_keywords, jd_requirements, jd_fetch_artifact = _parse_jd_url(
+                args.job_description_url,
+                jd_fetch_cache_dir=jd_fetch_cache_dir,
+            )
     except ValueError as exc:
         print(f"ERROR: {exc}")
         return 1
@@ -645,9 +788,14 @@ def main() -> int:
             "hits": embedding_cache.hits,
             "misses": embedding_cache.misses,
         }
+    if jd_fetch_artifact:
+        report["job_description_fetch"] = jd_fetch_artifact
     report_path = Path(args.selection_report) if args.selection_report else output_path.with_name("selection_report.json")
     report_path.write_text(dumps_pretty(report), encoding="utf-8")
     print(f"Wrote selection report: {report_path}")
+    if jd_fetch_artifact:
+        print(f"Saved JD fetch artifact: {jd_fetch_artifact['raw_path']}")
+        print(f"Saved JD fetch metadata: {jd_fetch_artifact['metadata_path']}")
     if embedding_cache:
         embedding_cache.save()
         print(f"Updated embedding cache: {embedding_cache_path}")

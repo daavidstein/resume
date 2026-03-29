@@ -13,6 +13,12 @@
 
 ## Next Session (Embedding Tailoring)
 
+- V1 roadmap item: add constrained rewrite for top selected bullets only.
+  - enforce fact/number preservation checks
+  - auto-fallback to original selected bullet on validation failure
+- V2 roadmap item: add adaptive rewrite/generation mode with confidence gating.
+  - allow evidence-backed new bullet generation only when confidence is high
+  - keep deterministic selection-only fallback when confidence is low or API calls fail
 - Implement embedding-driven story selection in production mode:
   - set `--embedding-backend openai` as default for real runs
   - keep `local_hash_v1` only as offline fallback/test mode
@@ -29,6 +35,7 @@
 - Replace `TBD` metrics with verified numbers where possible.
 - Add role-family tags (e.g., platform, data, product, leadership).
 - Add one complete one-shot tailoring example in `resumes/tailored/`.
+- Add a single `make` pipeline target (e.g., `make pipeline`) to run tailor -> validate model -> generate resume artifacts.
 - Add `scripts/fetch_embeddings.py` for explicit embedding precompute runs (resume/JD/story bank).
 - Persist tailoring run artifacts under a stable run directory (inputs + model + selection report + metadata).
 

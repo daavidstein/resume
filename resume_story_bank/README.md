@@ -23,6 +23,9 @@ It is designed for fast resume tailoring now, and deterministic resume generatio
 - Auditability/Visualization:
   - Add story ID -> human-readable story name mapping for user-facing displays.
   - Explain why each story was selected (for example: keyword overlap, high similarity to specific JD segments).
+- Tailoring roadmap:
+  - V1: add constrained rewrite for top selected bullets only (fact-preserving, with automatic fallback to original bullet).
+  - V2: add adaptive rewrite/generation with confidence gating and stricter evidence validation.
 
 See [notes/backlog.md](/home/daavid/PycharmProjects/resume/resume_story_bank/notes/backlog.md) for the session-ready checklist and tech-debt queue.
 ## Current Structure
@@ -120,6 +123,12 @@ Embedding cache:
 - OpenAI model can be selected with `--embedding-model` (default `text-embedding-3-small`).
 - Override with `--embedding-cache <path>` or disable with `--no-embedding-cache`.
 
+Job-description URL fetch cache:
+
+- When using `--job-description-url`, tailoring writes the raw fetched payload (`.html` or `.txt`) plus metadata JSON.
+- Default directory: `~/.cache/resume_story_bank/job_description_fetches`
+- Override with `--jd-fetch-cache-dir <path>` or disable with `--no-jd-fetch-cache`.
+
 Then render/export artifacts:
 
 ```bash
@@ -128,7 +137,7 @@ python3 scripts/generate_resume_artifacts.py \
   --output-dir resumes/tailored/example_role
 ```
 
-Implementation note: this tailoring step currently uses lightweight keyword matching as a temporary baseline. It is designed to be replaced by retrieval/similarity scoring (RAG-style) without changing the downstream model validation/render/export pipeline.
+Implementation note: tailoring now uses a hybrid scoring baseline (semantic similarity + lexical overlap) to select existing summary and experience bullets. This keeps the output deterministic and does not rewrite/generate new bullet text yet.
 
 Base resume format expectation for `tailor_resume_model.py`:
 
