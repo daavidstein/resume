@@ -40,6 +40,7 @@ Use this repository as a local-first resume story bank.
 
 ```bash
 python scripts/validate_story_bank.py
+python scripts/extract_story_candidates.py --input tests/fixtures/sample_transcript.md --master-story-bank tests/fixtures/sample_story_bank.md --output /tmp/resume_story_bank_temp/candidate_stories.md
 python scripts/validate_story_bank_metadata.py
 python scripts/tailor_resume_model.py --base-resume tests/fixtures/sample_base_resume.md --job-description tests/fixtures/sample_job_description.md --master-story-bank tests/fixtures/sample_story_bank.md --output /tmp/resume_story_bank_temp/model.json --page-budget 2
 python scripts/validate_resume_model.py --input tests/fixtures/sample_resume_model.json

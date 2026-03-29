@@ -1,4 +1,4 @@
-.PHONY: validate-story-bank validate-story-metadata validate validate-resume-model validate-resume-model-strict tailor-resume-model generate-resume export-pdf test-resume-pipeline temp-dir clean-temp
+.PHONY: validate-story-bank validate-story-metadata validate validate-resume-model validate-resume-model-strict extract-story-candidates tailor-resume-model generate-resume export-pdf test-resume-pipeline temp-dir clean-temp
 
 MODEL ?= tests/fixtures/sample_resume_model.json
 OUTPUT ?= resumes/tailored/generated
@@ -8,6 +8,8 @@ TEMP_DIR ?= /tmp/resume_story_bank_temp
 BASE_RESUME ?= tests/fixtures/sample_base_resume.md
 JOB_DESCRIPTION ?= tests/fixtures/sample_job_description.md
 STORY_BANK ?= tests/fixtures/sample_story_bank.md
+TRANSCRIPT ?= tests/fixtures/sample_transcript.md
+EXTRACTION_OUTPUT ?= $(TEMP_DIR)/candidate_stories.md
 EMBEDDING_CACHE ?= $(HOME)/.cache/resume_story_bank/embedding_cache.json
 
 validate-story-bank:
@@ -23,6 +25,9 @@ validate-resume-model:
 
 validate-resume-model-strict:
 	python3 scripts/validate_resume_model.py --input $(MODEL) --master-story-bank data/processed/master_story_bank.md
+
+extract-story-candidates:
+	python3 scripts/extract_story_candidates.py --input $(TRANSCRIPT) --master-story-bank $(STORY_BANK) --output $(EXTRACTION_OUTPUT)
 
 tailor-resume-model:
 	python3 scripts/tailor_resume_model.py --base-resume $(BASE_RESUME) --job-description $(JOB_DESCRIPTION) --master-story-bank $(STORY_BANK) --embedding-cache $(EMBEDDING_CACHE) --output $(MODEL) --page-budget $(PAGE_BUDGET)

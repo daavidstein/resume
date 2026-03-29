@@ -34,10 +34,21 @@
 - Add at least 10 high-quality stories from existing career material.
 - Replace `TBD` metrics with verified numbers where possible.
 - Add role-family tags (e.g., platform, data, product, leadership).
+- Define a first-class `user_profile` concept that contains the story bank as one component rather than treating the story bank as the whole candidate representation.
+- Add user-profile sections for broader candidate attributes relevant to job matching and tailoring:
+  - domain interests/topics: fraud, legal, rare diseases, sales and marketing
+  - personal interests: aviation, gaming
+  - identity/background: Jewish, teacher, business owner
+  - side projects/portfolio: GitHub projects
+  - behavioral/context signals: shopping habits or other consumer-interest patterns if useful
+- Add support for company-interest tracking as profile input, including optionally deriving followed companies from LinkedIn or similar sources.
+- Decide which profile attributes are used for retrieval/matching vs. only for tailoring/personalization.
 - Add one complete one-shot tailoring example in `resumes/tailored/`.
 - Add a single `make` pipeline target (e.g., `make pipeline`) to run tailor -> validate model -> generate resume artifacts.
 - Add `scripts/fetch_embeddings.py` for explicit embedding precompute runs (resume/JD/story bank).
 - Persist tailoring run artifacts under a stable run directory (inputs + model + selection report + metadata).
+- Add S3 persistence for story-bank data (`data/raw`, `data/processed`, and tailoring run artifacts) with versioned snapshots.
+- Evaluate adopting DaggerML (Aaron Niskin) for pipeline orchestration/versioned data lineage in this project.
 
 ## Medium Term
 

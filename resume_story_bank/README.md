@@ -10,6 +10,20 @@ It is designed for fast resume tailoring now, and deterministic resume generatio
 - Make one-shot tailoring repeatable with prompt and template scaffolds.
 - Stay lightweight: no framework, Python standard library scripts.
 
+## Project Guidelines (LLM-First)
+
+- Default to LLM-assisted processing for complex text tasks where semantics matter (for example: transcript-to-story extraction, deduplication, and rewrite/tailoring passes).
+- Keep deterministic heuristics as fallback paths for offline operation, reproducibility checks, and regression testing.
+- Treat model outputs as draft artifacts; all source-of-truth updates still require local validation before merge.
+- Preserve traceability: outputs must keep explicit source references and never invent achievements.
+- Prefer OpenAI-backed tailoring when `OPENAI_API_KEY` is available; fall back to deterministic local logic when unavailable.
+
+### Design Decision: Transcript Extraction Cost Strategy
+
+- Transcript-to-story extraction is currently a ChatGPT/manual step, not an automated embedding pipeline.
+- Rationale: transcript/story volume is expected to stay finite and slow-growing, so recurring embedding/indexing cost and complexity are not justified right now.
+- Implication: use prompt-driven extraction for new transcripts, then run local validators before merging into `master_story_bank.md`.
+
 ## Goals (Short Term TO-DO list)
 
 - Implement a pre-tailoring analysis step that identifies:
@@ -35,6 +49,8 @@ See [notes/backlog.md](/home/daavid/PycharmProjects/resume/resume_story_bank/not
 - `data/processed/master_story_bank.md`: single-file source of truth.
 - `data/processed/story_bank_changelog.md`: log of content-level changes.
 - `data/processed/source_map.md`: link stories back to source artifacts.
+- `data/processed/story_bank_provenance_map.md`: narrative provenance notes with primary/supporting evidence and legacy ID crosswalks.
+- `data/processed/summary_to_transcript_map.md`: map summaries to upstream transcripts with match confidence status.
 - `templates/`: standard markdown templates for story entries and tailoring requests.
 - `resumes/base_resume/`: canonical resume variants.
 - `resumes/tailored/`: job-specific resume outputs.
@@ -46,11 +62,13 @@ See [notes/backlog.md](/home/daavid/PycharmProjects/resume/resume_story_bank/not
 ## Core Workflow (Single-File Source of Truth)
 
 1. Capture raw inputs in `data/raw/`.
-2. Normalize stories into `data/processed/master_story_bank.md` using `templates/story_entry_template.md`.
-3. Update `source_map.md` and `story_bank_changelog.md` when adding/editing stories.
-4. Run validation:
+2. Generate draft story candidates from transcripts:
+   - `python3 scripts/extract_story_candidates.py --input data/raw/transcripts/<file>.md --master-story-bank data/processed/master_story_bank.md --output /tmp/resume_story_bank_temp/candidate_stories.md`
+3. Normalize reviewed stories into `data/processed/master_story_bank.md` using `templates/story_entry_template.md`.
+4. Update `source_map.md`, `story_bank_provenance_map.md`, and `story_bank_changelog.md` when adding/editing stories.
+5. Run validation:
    - `python scripts/validate_story_bank.py`
-5. For a target role:
+6. For a target role:
    - Save JD in `jobs/job_descriptions/`
    - Gather company/team culture signals and save notes in `jobs/company_notes/`
      - Prefer primary sources such as company careers page, mission/values pages, and team blogs
@@ -175,6 +193,9 @@ If `pandoc` is not installed, add `--skip-pdf` to still generate `resume.json` a
   - Checks each story block has an ID
   - Verifies required headers exist for each story
   - Detects duplicate story IDs
+- `scripts/extract_story_candidates.py`
+  - Heuristic transcript-to-candidate-story extractor (deterministic, standard-library-only)
+  - Emits markdown candidate entries, mapping notes, and open questions for review
 - `scripts/validate_story_bank_metadata.py`
   - Checks consistency between `master_story_bank.md`, `source_map.md`, and `story_bank_changelog.md`
 - `scripts/split_story_bank.py`
@@ -201,6 +222,7 @@ If `pandoc` is not installed, add `--skip-pdf` to still generate `resume.json` a
 ```bash
 cd resume_story_bank
 python3 scripts/validate_story_bank.py
+python3 scripts/extract_story_candidates.py --input tests/fixtures/sample_transcript.md --master-story-bank tests/fixtures/sample_story_bank.md --output /tmp/resume_story_bank_temp/candidate_stories.md
 python3 scripts/tailor_resume_model.py --base-resume tests/fixtures/sample_base_resume.md --job-description tests/fixtures/sample_job_description.md --master-story-bank tests/fixtures/sample_story_bank.md --output /tmp/resume_story_bank_temp/model.json --page-budget 2
 python3 scripts/validate_resume_model.py --input /tmp/resume_story_bank_temp/model.json
 python3 scripts/generate_resume_artifacts.py --input-model /tmp/resume_story_bank_temp/model.json --output-dir resumes/tailored/generated_from_tailor --skip-pdf
@@ -218,6 +240,7 @@ make test-resume-pipeline
 - `make validate-story-metadata`
 - `make validate-resume-model MODEL=<path>`
 - `make validate-resume-model-strict MODEL=<path>`
+- `make extract-story-candidates TRANSCRIPT=<path> STORY_BANK=<path> EXTRACTION_OUTPUT=<path>`
 - `make tailor-resume-model BASE_RESUME=<path> JOB_DESCRIPTION=<path> STORY_BANK=<path> MODEL=<path> PAGE_BUDGET=2|1`
 - `make generate-resume MODEL=<path> OUTPUT=<dir> PAGE_BUDGET=2|1`
 - `make export-pdf OUTPUT=<dir> PAGE_BUDGET=2|1`
