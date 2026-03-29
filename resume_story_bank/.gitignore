@@ -1,2 +1,5 @@
 resumes/tailored/**
 !resumes/tailored/.gitkeep
+data/
+LOCAL_README.md
+agent.local.md
