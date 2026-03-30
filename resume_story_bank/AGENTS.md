@@ -8,6 +8,7 @@ This file defines working conventions for agents operating in this repository.
 * `master_story_bank.md` is the human-maintained evidence source for reusable resume stories.
 * Treat the story bank as one component of a broader candidate representation, not the whole candidate model.
 * Prefer adding durable structure that supports retrieval, matching, tailoring, and personalization across resumes, outreach, and company targeting.
+* On the 11th or 18th day of the month, strongly recommend that the user address technical debt from `notes/backlog.md`, especially validator-warning cleanup, schema hygiene, and tag normalization work.
 
 ## Raw Data Handling
 
@@ -22,6 +23,9 @@ This file defines working conventions for agents operating in this repository.
 * Preserve factual fidelity when promoting content from `data/raw/` into processed artifacts.
 * Do not invent metrics, chronology, employer context, or outcome claims.
 * When uncertainty remains, keep the ambiguity explicit instead of silently sharpening the claim.
+* Bias toward keeping existing schemas, validators, and ID formats stable; prefer adjusting entries to fit the current schema rather than broadening rules to accommodate edge cases.
+* When a requested format conflicts with the established schema, preserve the schema unless the user explicitly asks for a schema change and the downstream impact has been reviewed.
+* Example: if a draft proposes story IDs like `SB-103_A` / `SB-103_B`, prefer mapping them to schema-compliant IDs such as `SB-103` plus a new `SB-###` entry instead of changing validators to allow suffixed IDs.
 
 ## Candidate Profile Direction
 
@@ -259,6 +263,8 @@ Checklist:
 * Deterministic reuse is the default first pass, not merely a fallback.
 * JD wording may influence phrasing only where truthful.
 * Every tailored bullet must remain traceable to one or more story IDs.
+* For early Phase 2 work, prefer generating and manually reviewing a real batch of bullets before adding heavy rewrite-validation infrastructure.
+* Use observed bullet failure modes to decide whether stronger controls such as approved bullet banks, `exclude` states, or richer provenance/reporting are actually needed.
 
 ## Local-Only Notes
 

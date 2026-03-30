@@ -46,9 +46,14 @@
 ## Near Term
 
 - Add at least 10 high-quality stories from existing career material.
+- Normalize existing structured-metadata tags to reduce ontology drift and validator warnings across the current story bank.
+  - recurring technical-debt cadence: address this on the 11th and 25th day of every month
 - Review `data/raw/manual_user_notes/resume optimization context.md` for additional accomplishment-sized story candidates and corroborating detail.
   - strengthen `SB-108` (Blueprint Churn Prediction) with additional evidence if available
+  - add the Blueprint scaled score prediction prototype as a candidate story/work item, noting that it used a linear model
   - decide whether Blueprint product-improvement analysis (`ANOVA` / `t-tests` / `bootstrapping`) should become its own story
+  - list other Dendra work not yet captured clearly, especially model-prediction postprocessing and related production-adjacent prediction logic
+  - check whether Dendra A/B test work is already covered; if not, add it as a candidate Dendra story/work item
 - Replace `TBD` metrics with verified numbers where possible.
 - Continue migrating legacy stories to `### Structured Metadata`, starting with role-family and evidence-strength coverage.
 - Define a first-class `user_profile` concept that contains the story bank as one component rather than treating the story bank as the whole candidate representation.

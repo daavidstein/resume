@@ -62,6 +62,24 @@ Structured metadata rollout is intentionally staged:
 - prefer ontology-backed warnings and normalization over brittle hard enforcement
 - tighten validation later with `python scripts/validate_story_bank.py --strict-structured-metadata`
 
+## Phase 2 Operating Rule
+
+Do not overengineer Phase 2 before reviewing real generated bullets.
+
+- The main near-term experiment is `story bank -> bullets`, not transcript validation.
+- Manual review is sufficient for the lower-volume promotion steps:
+  - `transcript -> summary`
+  - `summary -> story bank`
+- The main automated risk is later compression and presentation:
+  - `story bank -> bullets`
+  - `bullets -> resume`
+- Before building heavy bullet-risk infrastructure, review a meaningful first batch of generated bullets and use observed failure modes to drive guardrails.
+- Preserve only minimum observability during the first pass:
+  - which story or stories a bullet came from
+  - whether it was reused vs more synthetic/rephrased
+  - what prompt/path generated it
+- `wording_constraints`, `caveats`, and `forbidden_claims` should be treated as lightweight truth-preserving airlocks, not as a reason to build a large governance layer upfront.
+
 ## Goals (Short Term TO-DO list)
 
 - Implement a pre-tailoring analysis step that identifies:
@@ -75,6 +93,8 @@ Structured metadata rollout is intentionally staged:
 - Auditability/Visualization:
   - Add story ID -> human-readable story name mapping for user-facing displays.
   - Explain why each story was selected (for example: keyword overlap, high similarity to specific JD segments).
+- Project management:
+  - Add better issue tracking and scheduling so planning work is visible outside the session-local backlog.
 - Tailoring roadmap:
   - V1: add constrained rewrite for top selected bullets only (fact-preserving, with automatic fallback to original bullet).
   - V2: add adaptive rewrite/generation with confidence gating and stricter evidence validation.
@@ -231,6 +251,18 @@ If `pandoc` is not installed, add `--skip-pdf` to still generate `resume.json` a
   - Checks each story block has an ID
   - Verifies required headers exist for each story
   - Detects duplicate story IDs
+- `scripts/ingest_historical_resumes.py`
+  - Ingests historical resumes from `.md`, `.txt`, and `.pdf`
+  - Uses `pdftotext` for PDF extraction and emits a normalized historical bullet inventory
+- `scripts/link_historical_bullets.py`
+  - Links extracted historical bullets to story-bank stories using lightweight heuristic similarity
+- `scripts/report_story_coverage.py`
+  - Reports which stories are well represented, partially represented, or uncovered by historical bullets
+- `scripts/generate_candidate_bullets.py`
+  - Generates reviewable candidate bullets with reuse-first origin labels:
+    - `historical_reuse`
+    - `historical_adaptation`
+    - `story_synthesis`
 - `scripts/extract_story_candidates.py`
   - Heuristic transcript-to-candidate-story extractor (deterministic, standard-library-only)
   - Emits markdown candidate entries, mapping notes, and open questions for review
@@ -256,11 +288,44 @@ If `pandoc` is not installed, add `--skip-pdf` to still generate `resume.json` a
 - New or updated stories should include `### Structured Metadata` using the schema in `templates/story_entry_template.md`.
 - Keep `master_story_bank.md` authoritative until splitting is required.
 
+## Phase 2 Workflow
+
+Phase 2 is reuse-first and history-aware.
+
+1. Ingest historical resumes into a normalized bullet inventory:
+   - `python3 scripts/ingest_historical_resumes.py --resume resumes/base_resume/daavid_stein_base_resume.md --resume resumes/tailored/medium/resume.pdf --output /tmp/resume_story_bank_temp/historical_bullets.json --format both`
+2. Link extracted bullets to reviewed stories:
+   - `python3 scripts/link_historical_bullets.py --historical-bullets /tmp/resume_story_bank_temp/historical_bullets.json --master-story-bank data/processed/master_story_bank.md --output /tmp/resume_story_bank_temp/linked_historical_bullets.json --format both`
+3. Produce a coverage report:
+   - `python3 scripts/report_story_coverage.py --linked-historical-bullets /tmp/resume_story_bank_temp/linked_historical_bullets.json --master-story-bank data/processed/master_story_bank.md --output /tmp/resume_story_bank_temp/story_coverage.json --format both`
+4. Generate candidate bullets with reuse/adaptation before synthesis:
+   - `python3 scripts/generate_candidate_bullets.py --linked-historical-bullets /tmp/resume_story_bank_temp/linked_historical_bullets.json --master-story-bank data/processed/master_story_bank.md --job-description jobs/job_descriptions/example_role.md --output /tmp/resume_story_bank_temp/candidate_bullets.json --format both`
+
+PDF notes:
+
+- PDF resume ingestion uses `pdftotext`; scanned or image-only PDFs are not supported in Phase 2.
+- Extracted PDF bullets are best-effort review artifacts, not canonical source material.
+- `pdfinfo` is used only for page-count/debug metadata when available.
+
+Review labels for early manual evaluation:
+
+- `factually_unsupported`
+- `overstated_ownership`
+- `overstated_impact`
+- `wrong_emphasis`
+- `redundant_or_low_value`
+- `acceptable_with_edits`
+- `strong_as_is`
+
 ## Quick Start
 
 ```bash
 cd resume_story_bank
 python3 scripts/validate_story_bank.py
+python3 scripts/ingest_historical_resumes.py --resume tests/fixtures/sample_base_resume.md --resume resumes/tailored/medium/resume.pdf --output /tmp/resume_story_bank_temp/historical_bullets.json --format both
+python3 scripts/link_historical_bullets.py --historical-bullets /tmp/resume_story_bank_temp/historical_bullets.json --master-story-bank tests/fixtures/sample_story_bank.md --output /tmp/resume_story_bank_temp/linked_historical_bullets.json --format both
+python3 scripts/report_story_coverage.py --linked-historical-bullets /tmp/resume_story_bank_temp/linked_historical_bullets.json --master-story-bank tests/fixtures/sample_story_bank.md --output /tmp/resume_story_bank_temp/story_coverage.json --format both
+python3 scripts/generate_candidate_bullets.py --linked-historical-bullets /tmp/resume_story_bank_temp/linked_historical_bullets.json --master-story-bank tests/fixtures/sample_story_bank.md --job-description tests/fixtures/sample_job_description.md --output /tmp/resume_story_bank_temp/candidate_bullets.json --format both
 python3 scripts/extract_story_candidates.py --input tests/fixtures/sample_transcript.md --master-story-bank tests/fixtures/sample_story_bank.md --output /tmp/resume_story_bank_temp/candidate_stories.md
 python3 scripts/tailor_resume_model.py --base-resume tests/fixtures/sample_base_resume.md --job-description tests/fixtures/sample_job_description.md --master-story-bank tests/fixtures/sample_story_bank.md --output /tmp/resume_story_bank_temp/model.json --page-budget 2
 python3 scripts/validate_resume_model.py --input /tmp/resume_story_bank_temp/model.json
