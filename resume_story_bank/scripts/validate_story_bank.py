@@ -5,14 +5,23 @@ Checks:
 - Each story has a Story ID.
 - Required section headers exist for each story.
 - Story IDs are unique.
+- Structured metadata is validated in staged migration mode by default.
 """
 
 from __future__ import annotations
 
+import argparse
 import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+from metadata_ontology import (
+    load_tag_ontology,
+    normalize_structured_metadata,
+    validate_structured_metadata_against_ontology,
+)
+from rag_retrieval import parse_structured_metadata
 
 
 REQUIRED_HEADERS = [
@@ -23,6 +32,39 @@ REQUIRED_HEADERS = [
     "### Skills/Keywords",
     "### Source References",
 ]
+
+STRUCTURED_METADATA_HEADER = "### Structured Metadata"
+
+STRUCTURED_METADATA_LIST_FIELDS = {
+    "role_family_tags",
+    "domain_tags",
+    "capability_tags",
+    "technology_tags",
+    "business_problem_tags",
+    "audience_tags",
+    "preferred_resume_angles",
+    "wording_constraints",
+    "caveats",
+    "forbidden_claims",
+}
+
+STRUCTURED_METADATA_SCALAR_FIELDS = {
+    "ownership_level": {
+        "supporting",
+        "individual_contributor",
+        "cross_functional_driver",
+        "technical_lead",
+    },
+    "seniority_scope": {"junior", "mid", "senior", "mixed"},
+    "evidence_strength": {"strong", "medium", "weak"},
+    "recency_bucket": {"current", "recent", "older", "timeless"},
+    "rewrite_safety": {"high", "medium", "low"},
+}
+
+STRUCTURED_METADATA_REQUIRED_KEYS = (
+    sorted(STRUCTURED_METADATA_LIST_FIELDS)
+    + sorted(STRUCTURED_METADATA_SCALAR_FIELDS)
+)
 
 STORY_HEADER_PATTERN = re.compile(r"^## Story:\s+.+$")
 ID_PATTERN = re.compile(r"^SB-\d{3,}$")
@@ -80,8 +122,16 @@ def extract_story_id(block: StoryBlock) -> str | None:
     return None
 
 
-def validate_block(block: StoryBlock) -> list[str]:
+def extract_section_value(block: StoryBlock, header: str) -> str:
+    pattern = re.compile(rf"(?ms)^### {re.escape(header)}\s*$\n(.*?)(?=^### |\Z)")
+    body = "\n".join(block.lines)
+    match = pattern.search(body)
+    return match.group(1).strip() if match else ""
+
+
+def validate_block(block: StoryBlock, strict_structured_metadata: bool) -> tuple[list[str], list[str]]:
     errors: list[str] = []
+    warnings: list[str] = []
     body = "\n".join(block.lines)
 
     for header in REQUIRED_HEADERS:
@@ -98,10 +148,87 @@ def validate_block(block: StoryBlock) -> list[str]:
             f"Line {block.start_line}: '{block.title}' has invalid story ID format: {story_id}"
         )
 
-    return errors
+    metadata_block = extract_section_value(block, "Structured Metadata")
+    if not metadata_block:
+        if strict_structured_metadata:
+            errors.append(
+                f"Line {block.start_line}: '{block.title}' missing required header: {STRUCTURED_METADATA_HEADER}"
+            )
+        else:
+            warnings.append(
+                f"Line {block.start_line}: '{block.title}' is missing {STRUCTURED_METADATA_HEADER}; tolerated during Phase 1 migration"
+            )
+        return errors, warnings
+
+    try:
+        metadata = parse_structured_metadata(metadata_block)
+    except ValueError as exc:
+        errors.append(
+            f"Line {block.start_line}: '{block.title}' has invalid Structured Metadata: {exc}"
+        )
+        return errors, warnings
+
+    ontology, ontology_load_warnings = load_tag_ontology()
+    warnings.extend(
+        f"Line {block.start_line}: '{block.title}' ontology warning: {warning}"
+        for warning in ontology_load_warnings
+    )
+    metadata, normalization_warnings = normalize_structured_metadata(
+        metadata, ontology=ontology
+    )
+    warnings.extend(
+        f"Line {block.start_line}: '{block.title}' metadata normalization warning: {warning}"
+        for warning in normalization_warnings
+    )
+    warnings.extend(
+        f"Line {block.start_line}: '{block.title}' ontology warning: {warning}"
+        for warning in validate_structured_metadata_against_ontology(metadata, ontology)
+    )
+
+    missing_keys = [key for key in STRUCTURED_METADATA_REQUIRED_KEYS if key not in metadata]
+    if missing_keys:
+        errors.append(
+            f"Line {block.start_line}: '{block.title}' Structured Metadata is missing required key(s): {', '.join(missing_keys)}"
+        )
+
+    for key in sorted(metadata):
+        value = metadata[key]
+        if key in STRUCTURED_METADATA_LIST_FIELDS:
+            if not isinstance(value, list):
+                errors.append(
+                    f"Line {block.start_line}: '{block.title}' field '{key}' must use bracket list syntax like [tag_one, tag_two]"
+                )
+        elif key in STRUCTURED_METADATA_SCALAR_FIELDS:
+            if isinstance(value, list):
+                errors.append(
+                    f"Line {block.start_line}: '{block.title}' field '{key}' must be a scalar enum value, not a list"
+                )
+                continue
+            allowed = STRUCTURED_METADATA_SCALAR_FIELDS[key]
+            if value not in allowed:
+                errors.append(
+                    f"Line {block.start_line}: '{block.title}' field '{key}' must be one of: {', '.join(sorted(allowed))}; got '{value}'"
+                )
+        else:
+            errors.append(
+                f"Line {block.start_line}: '{block.title}' has unknown Structured Metadata key: {key}"
+            )
+
+    return errors, warnings
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--strict-structured-metadata",
+        action="store_true",
+        help="Require every story to include a fully populated Structured Metadata block.",
+    )
+    return parser.parse_args(argv)
 
 
 def main() -> int:
+    args = parse_args(sys.argv[1:])
     repo_root = Path(__file__).resolve().parents[1]
     target = repo_root / "data" / "processed" / "master_story_bank.md"
 
@@ -116,10 +243,15 @@ def main() -> int:
         return 1
 
     errors: list[str] = []
+    warnings: list[str] = []
     ids: list[tuple[str, StoryBlock]] = []
 
     for block in blocks:
-        errors.extend(validate_block(block))
+        block_errors, block_warnings = validate_block(
+            block, strict_structured_metadata=args.strict_structured_metadata
+        )
+        errors.extend(block_errors)
+        warnings.extend(block_warnings)
         story_id = extract_story_id(block)
         if story_id:
             ids.append((story_id, block))
@@ -140,9 +272,22 @@ def main() -> int:
         print("VALIDATION FAILED")
         for error in errors:
             print(f"- {error}")
+        if warnings:
+            print("WARNINGS")
+            for warning in warnings:
+                print(f"- {warning}")
         return 1
 
-    print(f"VALIDATION PASSED: {len(blocks)} story block(s), {len(seen)} unique ID(s).")
+    if warnings:
+        print("VALIDATION PASSED WITH WARNINGS")
+        for warning in warnings:
+            print(f"- {warning}")
+    else:
+        print("VALIDATION PASSED")
+    print(
+        f"Summary: {len(blocks)} story block(s), {len(seen)} unique ID(s), "
+        f"strict_structured_metadata={args.strict_structured_metadata}."
+    )
     return 0
 
 

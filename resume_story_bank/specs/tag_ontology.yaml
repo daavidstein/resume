@@ -1,0 +1,177 @@
+version: 1
+purpose: >
+  Canonical tag ontology for structured metadata in the resume story bank.
+  This file supports normalization, lightweight validation, and conservative
+  one-step abstraction from specific technologies/methods to broader
+  capability tags.
+
+principles:
+  - Preserve evidence-bearing specificity.
+  - Allow only immediate parent abstraction unless separately evidenced.
+  - Prefer fewer high-confidence tags over speculative completeness.
+  - Do not infer domain, responsibility, or seniority from a tool alone.
+  - Validation should warn on drift before it hard-fails.
+
+field_intent:
+  technology_tags: >
+    Specific tools, frameworks, algorithms, libraries, or concrete methods
+    explicitly evidenced in the story or clearly supported source material.
+  capability_tags: >
+    Broader technical capabilities directly demonstrated by the evidence.
+    These may include immediate parent abstractions of specific technologies.
+  domain_tags: >
+    Subject-matter or business domains directly evidenced by the story.
+  role_family_tags: >
+    Role families the story can truthfully support.
+
+normalization:
+  case_style: lowercase_snake_case
+  dedupe_within_field: true
+  sort_tags: true
+  unknown_tag_policy: warn
+  unsupported_parent_expansion_policy: warn
+
+abstraction_rules:
+  allow_immediate_parent_expansion: true
+  maximum_auto_expansion_depth: 1
+  require_specific_tag_when_parent_added: true
+  prohibit_multi_hop_inference_without_separate_evidence: true
+
+allowed_tags:
+  capability_tags:
+    - ab_testing
+    - anomaly_detection
+    - applied_research
+    - bayesian_modeling
+    - benchmarking
+    - causal_inference
+    - classification
+    - clustering
+    - communication
+    - computer_vision
+    - data_analysis
+    - data_centric_ai
+    - data_cleaning
+    - data_modeling
+    - data_quality
+    - dimensionality_reduction
+    - evaluation
+    - experiment_design
+    - explainability
+    - feature_engineering
+    - forecasting
+    - generative_ai
+    - llm_evaluation
+    - llm_pipeline_design
+    - measurement
+    - metric_design
+    - model_debugging
+    - model_interpretability
+    - model_selection
+    - nlp
+    - optimization
+    - probabilistic_modeling
+    - recommendation_systems
+    - regression
+    - reporting
+    - requirements_translation
+    - stakeholder_management
+    - statistical_modeling
+    - supervised_learning
+    - time_series
+    - unsupervised_learning
+    - visualization
+    - xai
+
+  domain_tags:
+    - adtech
+    - biotech
+    - computer_vision
+    - cybersecurity
+    - education
+    - healthcare
+    - manufacturing
+    - national_security
+    - public_sector
+    - remote_sensing
+    - test_prep
+
+  role_family_tags:
+    - analytics
+    - applied_scientist
+    - data_scientist
+    - decision_scientist
+    - machine_learning_engineer
+    - ml_research
+    - product_data_science
+    - research_engineer
+
+parent_map:
+  technology_tags:
+    hdbscan:
+      capability_tags: [clustering, unsupervised_learning]
+    langchain:
+      capability_tags: [llm_pipeline_design]
+    lime:
+      capability_tags: [xai, model_interpretability]
+    matplotlib:
+      capability_tags: [visualization]
+    numpy:
+      capability_tags: [data_analysis]
+    occlusion_maps:
+      capability_tags: [model_interpretability, model_debugging]
+    ollama:
+      capability_tags: [generative_ai, llm_pipeline_design]
+    pandas:
+      capability_tags: [data_analysis, data_cleaning]
+    pytorch:
+      capability_tags: [deep_learning, supervised_learning]
+      notes: >
+        deep_learning is intentionally not yet in allowed capability tags;
+        treat as a candidate for ontology expansion if multiple stories need it.
+    ray:
+      capability_tags: [optimization]
+    redshift:
+      capability_tags: [data_modeling]
+    sagemaker:
+      capability_tags: [ml_platforms]
+      notes: >
+        ml_platforms is intentionally not yet in allowed capability tags;
+        validator should warn rather than auto-add until the ontology is expanded.
+    shap:
+      capability_tags: [xai, model_interpretability]
+    sentence_transformers:
+      capability_tags: [nlp, representation_learning]
+      notes: >
+        representation_learning is intentionally not yet in allowed capability tags;
+        validator should warn rather than auto-add until the ontology is expanded.
+    sql:
+      capability_tags: [data_analysis, data_modeling]
+    tfidf:
+      capability_tags: [nlp, feature_engineering]
+    umap:
+      capability_tags: [dimensionality_reduction, unsupervised_learning]
+
+examples:
+  - evidence: Used LIME and occlusion maps to diagnose model failure modes.
+    allowed:
+      technology_tags: [lime, occlusion_maps]
+      capability_tags: [xai, model_interpretability, model_debugging]
+    not_automatically_allowed:
+      capability_tags: [responsible_ai]
+      domain_tags: [ai_governance]
+
+  - evidence: Used UMAP and HDBSCAN to cluster unlabeled text.
+    allowed:
+      technology_tags: [umap, hdbscan]
+      capability_tags: [dimensionality_reduction, clustering, unsupervised_learning]
+    not_automatically_allowed:
+      capability_tags: [topic_modeling]
+
+validator_expectations:
+  - Normalize tags to lowercase snake_case before comparison.
+  - Warn on tags outside allowed_tags for the relevant field.
+  - Warn when a parent capability tag is present without its specific technology tag, when the parent was likely inferred from that technology.
+  - Warn when a proposed abstraction exceeds one hop.
+  - Permit explicitly evidenced broader tags even if no child technology tag exists.
+  - Keep validation lightweight in Phase 1; prefer warnings and suggested fixes over hard failures.

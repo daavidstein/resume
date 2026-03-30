@@ -10,19 +10,57 @@ It is designed for fast resume tailoring now, and deterministic resume generatio
 - Make one-shot tailoring repeatable with prompt and template scaffolds.
 - Stay lightweight: no framework, Python standard library scripts.
 
-## Project Guidelines (LLM-First)
+## Story Bank Data Model
 
-- Default to LLM-assisted processing for complex text tasks where semantics matter (for example: transcript-to-story extraction, deduplication, and rewrite/tailoring passes).
-- Keep deterministic heuristics as fallback paths for offline operation, reproducibility checks, and regression testing.
-- Treat model outputs as draft artifacts; all source-of-truth updates still require local validation before merge.
+The repository uses three classes of information:
+
+1. **Evidence fields**
+   - Human-maintained source-of-truth story content.
+   - Includes `Context`, `Actions`, `Outcomes`, `Skills/Keywords`, and `Source References`.
+   - Used for auditability and final claim grounding.
+2. **Structured metadata**
+   - Human/agent-maintained retrieval and rewrite-control fields under `### Structured Metadata`.
+   - Used for ranking support, match interpretation, and future rewrite guardrails.
+   - This metadata is authoritative for machine-usable tailoring constraints.
+   - `specs/tag_ontology.yaml` provides the canonical normalization and lightweight validation layer for ontology-controlled tags.
+3. **Derived artifacts**
+   - Embeddings, chunk rankings, selected bullets, rewritten bullets, generated summaries, and selection reports.
+   - These are disposable outputs and must never be treated as source of truth.
+
+## Project Guidelines (Hybrid Tailoring)
+
+- Deterministic reuse remains the default first pass for tailoring.
+- Tailoring is intentionally hybrid:
+  - retrieve and score existing stories and reusable bullets first
+  - prefer reuse when the existing bullet is already strong
+  - use rewrite only when it creates a meaningful fit improvement
+  - keep every tailored bullet traceable to story ID(s)
 - Preserve traceability: outputs must keep explicit source references and never invent achievements.
-- Prefer OpenAI-backed tailoring when `OPENAI_API_KEY` is available; fall back to deterministic local logic when unavailable.
+- Treat model outputs as draft artifacts; all source-of-truth updates still require local validation before merge.
+- Keep deterministic heuristics available for offline operation, reproducibility checks, and regression testing.
+- Use `caveats`, `wording_constraints`, and `forbidden_claims` to prevent overstatement during later rewrite phases.
+
+## Candidate Profile Separation
+
+The story bank is not the full candidate model.
+Softer matching and personalization signals should live in a separate candidate-profile artifact rather than inside `master_story_bank.md`.
+Candidate-profile data may influence ranking or framing later, but it must not be treated as evidence for accomplishment claims.
 
 ### Design Decision: Transcript Extraction Cost Strategy
 
 - Transcript-to-story extraction is currently a ChatGPT/manual step, not an automated embedding pipeline.
 - Rationale: transcript/story volume is expected to stay finite and slow-growing, so recurring embedding/indexing cost and complexity are not justified right now.
 - Implication: use prompt-driven extraction for new transcripts, then run local validators before merging into `master_story_bank.md`.
+
+## Migration Note
+
+Structured metadata rollout is intentionally staged:
+
+- update template and parser first
+- allow temporary backward compatibility for legacy stories
+- validate non-strictly during migration
+- prefer ontology-backed warnings and normalization over brittle hard enforcement
+- tighten validation later with `python scripts/validate_story_bank.py --strict-structured-metadata`
 
 ## Goals (Short Term TO-DO list)
 
@@ -215,6 +253,7 @@ If `pandoc` is not installed, add `--skip-pdf` to still generate `resume.json` a
 
 - Story IDs: `SB-###` (example: `SB-001`)
 - Keep story entries complete enough to support STAR/CAR bullet generation.
+- New or updated stories should include `### Structured Metadata` using the schema in `templates/story_entry_template.md`.
 - Keep `master_story_bank.md` authoritative until splitting is required.
 
 ## Quick Start

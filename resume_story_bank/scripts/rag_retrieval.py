@@ -8,6 +8,7 @@ hash embedding without changing the pipeline shape.
 
 from __future__ import annotations
 
+import ast
 from dataclasses import dataclass
 import hashlib
 import json
@@ -15,9 +16,11 @@ import math
 import os
 from pathlib import Path
 import re
-from typing import Protocol
+from typing import List, Protocol, Union
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+from metadata_ontology import load_tag_ontology, normalize_structured_metadata
 
 
 STOPWORDS = {
@@ -47,6 +50,30 @@ STOPWORDS = {
 
 STORY_HEADER_PATTERN = re.compile(r"^## Story:\s+(.+)$", re.MULTILINE)
 
+STRUCTURED_METADATA_LIST_FIELDS = {
+    "role_family_tags",
+    "domain_tags",
+    "capability_tags",
+    "technology_tags",
+    "business_problem_tags",
+    "audience_tags",
+    "preferred_resume_angles",
+    "wording_constraints",
+    "caveats",
+    "forbidden_claims",
+}
+
+STRUCTURED_METADATA_SCALAR_FIELDS = {
+    "ownership_level",
+    "seniority_scope",
+    "evidence_strength",
+    "recency_bucket",
+    "rewrite_safety",
+}
+
+
+StructuredMetadataValue = Union[str, List[str]]
+
 
 @dataclass
 class Story:
@@ -57,6 +84,7 @@ class Story:
     outcomes: str
     skills_keywords: str
     source_references: str
+    structured_metadata: dict[str, StructuredMetadataValue] | None = None
 
     @property
     def full_text(self) -> str:
@@ -279,6 +307,9 @@ def parse_master_story_bank(text: str) -> list[Story]:
                 outcomes=_extract_section_value(body, "Outcomes"),
                 skills_keywords=_extract_section_value(body, "Skills/Keywords"),
                 source_references=_extract_section_value(body, "Source References"),
+                structured_metadata=parse_structured_metadata(
+                    _extract_section_value(body, "Structured Metadata")
+                ),
             )
         )
     return stories
@@ -290,6 +321,68 @@ def _extract_section_value(text: str, section_name: str) -> str:
     )
     match = pattern.search(text)
     return match.group(1).strip() if match else ""
+
+
+def parse_structured_metadata(text: str) -> dict[str, StructuredMetadataValue]:
+    if not text.strip():
+        return {}
+
+    metadata: dict[str, StructuredMetadataValue] = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if not line.startswith("- "):
+            raise ValueError(
+                "Structured Metadata lines must start with '- ' and use 'key: value' syntax"
+            )
+        payload = line[2:].strip()
+        if ":" not in payload:
+            raise ValueError(
+                "Structured Metadata lines must use 'key: value' syntax"
+            )
+        key, raw_value = payload.split(":", 1)
+        normalized_key = key.strip()
+        if not normalized_key:
+            raise ValueError("Structured Metadata key cannot be empty")
+        if normalized_key in metadata:
+            raise ValueError(f"Duplicate Structured Metadata key: {normalized_key}")
+        metadata[normalized_key] = _parse_metadata_value(raw_value.strip(), normalized_key)
+    ontology, _warnings = load_tag_ontology()
+    normalized_metadata, _normalization_warnings = normalize_structured_metadata(
+        metadata, ontology=ontology
+    )
+    return normalized_metadata
+
+
+def _parse_metadata_value(value: str, key: str) -> StructuredMetadataValue:
+    if value.startswith("["):
+        if not value.endswith("]"):
+            raise ValueError(
+                f"Structured Metadata field '{key}' has malformed list syntax: {value}"
+            )
+        return _parse_metadata_list(value, key)
+    return value
+
+
+def _parse_metadata_list(value: str, key: str) -> list[str]:
+    if value == "[]":
+        return []
+    inner = value[1:-1].strip()
+    if not inner:
+        return []
+    try:
+        parsed = ast.literal_eval(value)
+    except (SyntaxError, ValueError):
+        parsed = None
+    if isinstance(parsed, list) and all(isinstance(item, str) for item in parsed):
+        return [item.strip() for item in parsed]
+    items = [item.strip() for item in inner.split(",")]
+    if any(not item for item in items):
+        raise ValueError(
+            f"Structured Metadata field '{key}' has malformed list syntax: {value}"
+        )
+    return items
 
 
 def build_story_chunks(stories: list[Story]) -> list[Chunk]:
