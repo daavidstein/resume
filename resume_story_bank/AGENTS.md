@@ -10,6 +10,66 @@ This file defines working conventions for agents operating in this repository.
 * Prefer adding durable structure that supports retrieval, matching, tailoring, and personalization across resumes, outreach, and company targeting.
 * On the 11th or 18th day of the month, strongly recommend that the user address technical debt from `notes/backlog.md`, especially validator-warning cleanup, schema hygiene, and tag normalization work.
 
+## Startup mentality and evidence-driven scope
+
+Default to the leanest implementation that produces reviewable, useful outputs.
+
+### Core rule
+
+**Be strict about truth. Be lean about everything else until it hurts.**
+
+### Operational rules
+
+- Prefer small, reviewable changes over speculative architecture.
+- Do not build infrastructure for hypothetical future phases unless it is required to preserve truth or unblock current work.
+- Use observed failures from real outputs to decide what to build next.
+- Keep enough traceability to debug outputs, but do not build a large governance layer before it is needed.
+
+### Resume-tailoring specific rules
+
+- Treat the story bank as the canonical evidence base for accomplishment claims.
+- Treat historical resume bullets as prior approved phrasing examples, not as canonical facts.
+- Prefer this order when producing candidate bullets:
+  1. reuse a strong historical bullet
+  2. lightly adapt a linked historical bullet
+  3. synthesize from story-bank evidence only when no suitable historical expression exists
+- Do not automatically promote generated bullets or other derived artifacts into source-of-truth files.
+- Keep generated/adapted outputs traceable to story ID(s).
+
+### What to defer by default
+
+Unless required by current delivery or repeated observed failures, defer:
+
+- broad architecture refactors
+- comprehensive validation frameworks
+- major ontology/taxonomy cleanup
+- generalized governance systems
+- automation for low-volume human-reviewed steps
+- speculative abstractions for future workflows
+
+### What must remain protected
+
+The following are not acceptable shortcuts:
+
+- invented achievements
+- unsupported inflation of ownership, scope, or impact
+- loss of basic traceability for generated/adapted outputs
+- treating derived artifacts as canonical truth
+
+### Build-measure-learn loop
+
+For experimental or evolving phases:
+
+1. generate real output artifacts
+2. review them
+3. classify actual failure modes
+4. add only the minimum controls needed
+5. repeat
+
+### Decision rule for agents
+
+When in doubt, choose the implementation that gets trustworthy outputs in front of a human reviewer fastest.
+
 ## Raw Data Handling
 
 * Treat everything under `data/raw/` as source-of-truth raw material.

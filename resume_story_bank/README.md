@@ -40,6 +40,85 @@ The repository uses three classes of information:
 - Keep deterministic heuristics available for offline operation, reproducibility checks, and regression testing.
 - Use `caveats`, `wording_constraints`, and `forbidden_claims` to prevent overstatement during later rewrite phases.
 
+# Project Guideline Addendum: Agent Behavior and Startup Execution
+
+## Why this addendum exists
+
+The project already encodes a reuse-first, truth-preserving tailoring strategy. This addendum makes the expected execution style explicit so that agents do not drift into infrastructure-first planning.
+
+## Operating principle
+
+**Be strict about truth. Be lean about everything else until it hurts.**
+
+This means:
+
+- ship useful capability early
+- learn from real outputs
+- avoid speculative architecture
+- add infrastructure only when it solves an observed problem
+- preserve truth and traceability even when moving quickly
+
+## Execution rules
+
+### 1. Prefer reviewable outputs over elegant architecture
+When choosing between a lightweight implementation and a more comprehensive one, prefer the lightweight implementation unless the heavier one is needed to:
+
+- preserve factual integrity
+- prevent repeated observed failures
+- unblock current delivery
+
+### 2. Reuse before generation
+For resume-tailoring work, prefer this order:
+
+1. reuse strong historical bullets
+2. lightly adapt linked historical bullets
+3. generate new bullets from story-bank evidence only when necessary
+
+Historical resumes should be treated as a seed bullet corpus and style prior, not as the canonical evidence source.
+
+### 3. Keep the evidence model clear
+- The story bank remains the canonical reviewed evidence base for accomplishment claims.
+- Historical bullets are expression artifacts and prior approved wording examples.
+- Generated outputs are draft artifacts unless explicitly reviewed and promoted.
+
+### 4. Defer scope by default
+Unless required by current work or observed failures, defer:
+
+- broad refactors
+- full governance systems
+- comprehensive validators
+- major ontology cleanup
+- speculative abstractions for future phases
+
+### 5. Use observed failures to drive guardrails
+Do not build large control systems before reviewing real outputs.
+
+For new workflow stages:
+
+1. generate output
+2. review manually
+3. classify failure modes
+4. add the minimum controls needed
+
+### 6. Keep minimum observability
+Even when moving fast, keep enough visibility to answer basic questions like:
+
+- what source story or stories produced this output?
+- was this reused, adapted, or newly synthesized?
+- what path or prompt created it?
+
+This is the minimum needed to make failures diagnosable without overbuilding provenance infrastructure.
+
+## Summary
+
+The intended repo behavior is:
+
+- evidence-grounded
+- reuse-first
+- review-driven
+- startup-minded
+- skeptical of speculative architecture
+
 ## Candidate Profile Separation
 
 The story bank is not the full candidate model.
